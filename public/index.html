@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Code 39 Scanner</title>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#111827" />
+    <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            background: #111827;
+            color: #f9fafb;
+        }
+
+        header {
+            padding: 12px 16px;
+            background: #1f2937;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        h1 {
+            font-size: 18px;
+            margin: 0;
+        }
+
+        main {
+            padding: 16px;
+            display: grid;
+            gap: 12px;
+        }
+
+        #video {
+            width: 100%;
+            max-height: 55vh;
+            background: #000;
+            border-radius: 12px;
+            object-fit: cover;
+        }
+
+        .status {
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: #374151;
+            font-size: 14px;
+        }
+
+        .status.ok {
+            background: #065f46;
+        }
+
+        .status.warn {
+            background: #92400e;
+        }
+
+        .status.error {
+            background: #991b1b;
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px;
+            border: 0;
+            border-radius: 8px;
+            font-weight: 600;
+            background: #2563eb;
+            color: white;
+        }
+
+        button.secondary {
+            background: #4b5563;
+        }
+
+        #log {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: grid;
+            gap: 6px;
+        }
+
+        #log li {
+            background: #1f2937;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .muted {
+            color: #9ca3af;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Code 39 → PostgreSQL</h1>
+    </header>
+
+    <main>
+        <video id="video" playsinline muted></video>
+
+        <div id="status" class="status">
+            Tap Start, allow camera, point at Code 39.
+        </div>
+
+        <div class="controls">
+            <button id="startBtn">Start</button>
+            <button id="stopBtn" class="secondary">Stop</button>
+        </div>
+
+        <div>
+            <div class="muted">Recent scans</div>
+            <ul id="log"></ul>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+    <script>
+        const video = document.getElementById('video');
+        const statusEl = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const logEl = document.getElementById('log');
+
+        const DUPLICATE_WINDOW_MS = 3000; // ignore same code locally for 3s
+        const recentScans = new Map();
+
+        let codeReader = null;
+        let running = false;
+
+        const deviceId = (() => {
+            let id = localStorage.getItem('scannerDeviceId');
+            if (!id) {
+                id = crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : String(Date.now()) + Math.random();
+                localStorage.setItem('scannerDeviceId', id);
+            }
+            return id;
+        })();
+
+        function setStatus(text, type = '') {
+            statusEl.textContent = text;
+            statusEl.className = 'status ' + type;
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[c]));
+        }
+
+        function addLog(code, scannedAt) {
+            const li = document.createElement('li');
+            const time = scannedAt
+                ? new Date(scannedAt).toLocaleTimeString()
+                : new Date().toLocaleTimeString();
+
+            li.innerHTML = `
+        <span>${escapeHtml(code)}</span>
+        <span class="muted">${time}</span>
+      `;
+
+            logEl.prepend(li);
+
+            while (logEl.children.length > 20) {
+                logEl.lastChild.remove();
+            }
+        }
+
+        async function saveBarcode(rawCode) {
+            const code = String(rawCode || '').trim().toUpperCase();
+            if (!code) return;
+
+            const now = Date.now();
+            const last = recentScans.get(code);
+
+            // Client-side duplicate prevention
+            if (last && now - last < DUPLICATE_WINDOW_MS) {
+                setStatus(`Ignored duplicate locally: ${code}`, 'warn');
+                return;
+            }
+
+            recentScans.set(code, now);
+
+            // Clean old entries
+            for (const [k, t] of recentScans) {
+                if (now - t > 10000) recentScans.delete(k);
+            }
+
+            setStatus(`Saving ${code}...`);
+
+            try {
+                const res = await fetch('/scan', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        barcode: code,
+                        deviceId
+                    })
+                });
+
+                const data = await res.json().catch(() => ({}));
+
+                if (!res.ok) {
+                    throw new Error(data.error || `HTTP ${res.status}`);
+                }
+
+                if (data.duplicate) {
+                    setStatus(`Server ignored duplicate: ${code}`, 'warn');
+                } else {
+                    setStatus(`Saved: ${code}`, 'ok');
+                    addLog(code, data.scan?.scanned_at);
+
+                    if (navigator.vibrate) {
+                        navigator.vibrate(50);
+                    }
+                }
+            } catch (err) {
+                setStatus(`Error: ${err.message}`, 'error');
+            }
+        }
+
+        async function startScanner() {
+            if (running) return;
+
+            try {
+                const hints = new Map();
+                hints.set(
+                    ZXing.DecodeHintType.POSSIBLE_FORMATS,
+                    [ZXing.BarcodeFormat.CODE_39]
+                );
+                hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+                codeReader = new ZXingBrowser.BrowserMultiFormatReader(hints, 500);
+
+
+                const devices = await ZXingBrowser.BrowserMultiFormatReader.listVideoInputDevices();
+
+                const backCamera =
+                    devices.find(d => /back|rear|environment/i.test(d.label)) ||
+                    devices[devices.length - 1];
+
+                if (!backCamera) {
+                    throw new Error('No camera found');
+                }
+
+                await codeReader.decodeFromVideoDevice(
+                    backCamera.deviceId,
+                    video,
+                    (result, err) => {
+                        if (result) {
+                            saveBarcode(result.getText());
+                        }
+                        // ZXing continuously reports "not found" errors.
+                        // Ignore them so scanning stays continuous.
+                    }
+                );
+
+                running = true;
+                setStatus('Scanning... point at a Code 39 barcode.');
+            } catch (err) {
+                setStatus(`Camera error: ${err.message}`, 'error');
+            }
+        }
+
+        function stopScanner() {
+            if (codeReader) {
+                codeReader.reset();
+            }
+            running = false;
+            setStatus('Stopped');
+        }
+
+        startBtn.addEventListener('click', startScanner);
+        stopBtn.addEventListener('click', stopScanner);
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(() => { });
+        }
+    </script>
+</body>
+
+</html>
