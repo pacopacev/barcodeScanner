@@ -4,6 +4,26 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (url.pathname === '/release' && request.method === 'POST') {
+      return handleScan(request, env);
+    }
+
+    if (url.pathname === '/cut' && request.method === 'POST') {
+      return handleScan(request, env);
+    }
+
+    if (url.pathname === '/cnc' && request.method === 'POST') {
+      return handleScan(request, env);
+    }
+
+    if (url.pathname === '/assembly' && request.method === 'POST') {
+      return handleScan(request, env);
+    }
+
+    if (url.pathname === '/qc' && request.method === 'POST') {
+      return handleScan(request, env);
+    }
+
     if (url.pathname === '/scan' && request.method === 'POST') {
       return handleScan(request, env);
     }
@@ -22,6 +42,7 @@ async function handleScan(request, env) {
     const body = await request.json();
 
     const barcode = String(body.barcode || '').trim().toUpperCase();
+    const process = String(body.process || '').trim().toLowerCase();
     const deviceId = String(body.deviceId || 'unknown').slice(0, 64);
 
     if (!barcode) {
@@ -40,14 +61,17 @@ async function handleScan(request, env) {
 
     // Server-side duplicate prevention:
     // ignore the same barcode from the same device within 5 seconds.
+
+
     const rows = await sql`
-      INSERT INTO barcode_scans (barcode, device_id)
-      SELECT ${barcode}, ${deviceId}
+      INSERT INTO barcode_scans (barcode, device_id, process)
+      SELECT ${barcode}, ${deviceId}, ${process}
       WHERE NOT EXISTS (
         SELECT 1
         FROM barcode_scans
         WHERE barcode = ${barcode}
           AND device_id = ${deviceId}
+          AND process = ${process}
           AND scanned_at > NOW() - INTERVAL '5 seconds'
       )
       RETURNING id, barcode, device_id, scanned_at

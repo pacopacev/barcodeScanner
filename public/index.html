@@ -119,16 +119,22 @@
         <video id="video" playsinline muted></video>
 
         <div id="status" class="status">
-            Tap Start, allow camera, point at Code 39.
+            Choose a station, allow camera access, and point at Code 39.
         </div>
 
         <div class="controls">
-            <button id="startBtn">Start</button>
-            <button id="stopBtn" class="secondary">Stop</button>
+            <button id="releaseBtn" class="secondary">RELEASE</button>
+            <button id="cutHBtn" class="secondary">CUT</button>
+            <button id="cncBtn" class="secondary">CNC</button>
+            <button id="assemblyBtn" class="secondary">ASSEMBLY</button>
+            <button id="qcBtn" class="secondary">QC</button>
         </div>
 
         <div>
-            <div class="muted">Recent scans</div>
+            <div class="controls">
+                <div class="muted">Recent scans</div>
+                <button id="clearLogBtn" class="secondary">Clear recent</button>
+            </div>
             <ul id="log"></ul>
         </div>
     </main>
@@ -137,15 +143,35 @@
     <script>
         const video = document.getElementById('video');
         const statusEl = document.getElementById('status');
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
         const logEl = document.getElementById('log');
+        const clearLogBtn = document.getElementById('clearLogBtn');
+
+
+        const releaseBtn = document.getElementById('releaseBtn');
+        const cutHBtn = document.getElementById('cutHBtn');
+        const cncBtn = document.getElementById('cncBtn');
+        const assemblyBtn = document.getElementById('assemblyBtn');
+        const qcBtn = document.getElementById('qcBtn');
 
         const DUPLICATE_WINDOW_MS = 3000; // ignore same code locally for 3s
+        const PENDING_SCANS_KEY = 'pendingBarcodeScans';
         const recentScans = new Map();
+        const pendingScans = (() => {
+            try {
+                const scans = JSON.parse(localStorage.getItem(PENDING_SCANS_KEY) || '[]');
+                return Array.isArray(scans)
+                    ? scans.filter(scan => scan && typeof scan.id === 'string' && typeof scan.barcode === 'string')
+                    : [];
+            } catch {
+                return [];
+            }
+        })();
 
         let codeReader = null;
         let running = false;
+        let starting = false;
+        let activeProcess = '';
+        let syncingScans = false;
 
         const deviceId = (() => {
             let id = localStorage.getItem('scannerDeviceId');
@@ -163,26 +189,18 @@
             statusEl.className = 'status ' + type;
         }
 
-        function escapeHtml(s) {
-            return String(s).replace(/[&<>"']/g, c => ({
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;'
-            }[c]));
-        }
-
-        function addLog(code, scannedAt) {
+        function addLog(scan, state) {
             const li = document.createElement('li');
-            const time = scannedAt
-                ? new Date(scannedAt).toLocaleTimeString()
-                : new Date().toLocaleTimeString();
+            li.id = `scan-${scan.id}`;
 
-            li.innerHTML = `
-        <span>${escapeHtml(code)}</span>
-        <span class="muted">${time}</span>
-      `;
+            const barcode = document.createElement('span');
+            barcode.textContent = scan.barcode;
+
+            const details = document.createElement('span');
+            details.className = 'muted';
+            details.textContent = `${scan.process ? scan.process.toUpperCase() : 'SCAN'} · ${new Date(scan.scannedAt).toLocaleTimeString()} · ${state}`;
+
+            li.append(barcode, details);
 
             logEl.prepend(li);
 
@@ -191,64 +209,117 @@
             }
         }
 
-        async function saveBarcode(rawCode) {
-            const code = String(rawCode || '').trim().toUpperCase();
-            if (!code) return;
+        function updateLogState(scan, state) {
+            const row = document.getElementById(`scan-${scan.id}`);
+            const details = row?.lastElementChild;
+            if (details) {
+                details.textContent = `${scan.process ? scan.process.toUpperCase() : 'SCAN'} · ${new Date(scan.scannedAt).toLocaleTimeString()} · ${state}`;
+            }
+        }
+
+        function persistPendingScans() {
+            try {
+                localStorage.setItem(PENDING_SCANS_KEY, JSON.stringify(pendingScans));
+                return true;
+            } catch {
+                return false;
+            }
+        }
+
+        async function syncPendingScans() {
+            if (syncingScans || pendingScans.length === 0) return;
+
+            syncingScans = true;
+            try {
+                for (const scan of [...pendingScans]) {
+                    try {
+                        const endpoint = scan.process ? `/${scan.process}` : '/scan';
+                        const res = await fetch(endpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                barcode: scan.barcode,
+                                process: scan.process,
+                                deviceId: scan.deviceId
+                            })
+                        });
+                        const data = await res.json().catch(() => ({}));
+
+                        if (!res.ok) {
+                            throw new Error(data.error || `HTTP ${res.status}`);
+                        }
+
+                        const index = pendingScans.findIndex(item => item.id === scan.id);
+                        if (index !== -1) pendingScans.splice(index, 1);
+                        persistPendingScans();
+
+                        const state = data.duplicate ? 'Already saved' : 'Saved';
+                        updateLogState(scan, state);
+                        setStatus(`${state}: ${scan.barcode} · ${(scan.process || '').toUpperCase() || 'SCAN'}`, data.duplicate ? 'warn' : 'ok');
+
+                        if (!data.duplicate && navigator.vibrate) {
+                            navigator.vibrate(50);
+                        }
+                    } catch (err) {
+                        updateLogState(scan, 'Pending sync');
+                        setStatus(`Waiting to sync ${scan.barcode}: ${err.message}`, 'warn');
+                        break;
+                    }
+                }
+            } finally {
+                syncingScans = false;
+            }
+        }
+
+        async function saveBarcode(rawCode, process="") {
+            const barcode = String(rawCode || '').trim().toUpperCase();
+            const processName = String(process || '').trim().toLowerCase();
+            if (!barcode) return;
 
             const now = Date.now();
-            const last = recentScans.get(code);
+            const scanKey = `${processName}:${barcode}`;
+            const last = recentScans.get(scanKey);
 
             // Client-side duplicate prevention
             if (last && now - last < DUPLICATE_WINDOW_MS) {
-                setStatus(`Ignored duplicate locally: ${code}`, 'warn');
+                setStatus(`Ignored duplicate locally: ${barcode}`, 'warn');
                 return;
             }
 
-            recentScans.set(code, now);
+            recentScans.set(scanKey, now);
 
             // Clean old entries
             for (const [k, t] of recentScans) {
                 if (now - t > 10000) recentScans.delete(k);
             }
 
-            setStatus(`Saving ${code}...`);
-
-            try {
-                const res = await fetch('/scan', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        barcode: code,
-                        deviceId
-                    })
-                });
-
-                const data = await res.json().catch(() => ({}));
-
-                if (!res.ok) {
-                    throw new Error(data.error || `HTTP ${res.status}`);
-                }
-
-                if (data.duplicate) {
-                    setStatus(`Server ignored duplicate: ${code}`, 'warn');
-                } else {
-                    setStatus(`Saved: ${code}`, 'ok');
-                    addLog(code, data.scan?.scanned_at);
-
-                    if (navigator.vibrate) {
-                        navigator.vibrate(50);
-                    }
-                }
-            } catch (err) {
-                setStatus(`Error: ${err.message}`, 'error');
-            }
+            const scan = {
+                id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                barcode,
+                process: processName,
+                deviceId,
+                scannedAt: new Date().toISOString()
+            };
+            pendingScans.push(scan);
+            const stored = persistPendingScans();
+            addLog(scan, stored ? 'Pending sync' : 'Not saved locally');
+            setStatus(
+                stored
+                    ? `Queued ${barcode} for ${processName.toUpperCase() || 'SCAN'}`
+                    : `Could not save ${barcode} on this device`,
+                stored ? 'warn' : 'error'
+            );
+            syncPendingScans();
         }
 
-        async function startScanner() {
-            if (running) return;
+        async function startScanner(process="") {
+            activeProcess = String(process || '').trim().toLowerCase();
+            if (running || starting) {
+                setStatus(`Scanning for ${activeProcess.toUpperCase() || 'SCAN'}`);
+                return;
+            }
 
+            starting = true;
             try {
                 const hints = new Map();
                 hints.set(
@@ -275,7 +346,7 @@
                     video,
                     (result, err) => {
                         if (result) {
-                            saveBarcode(result.getText());
+                            saveBarcode(result.getText(), activeProcess);
                         }
                         // ZXing continuously reports "not found" errors.
                         // Ignore them so scanning stays continuous.
@@ -283,22 +354,46 @@
                 );
 
                 running = true;
-                setStatus('Scanning... point at a Code 39 barcode.');
+                setStatus(`Scanning for ${activeProcess.toUpperCase() || 'SCAN'}... point at a Code 39 barcode.`);
             } catch (err) {
                 setStatus(`Camera error: ${err.message}`, 'error');
+            } finally {
+                starting = false;
             }
         }
 
-        function stopScanner() {
-            if (codeReader) {
-                codeReader.reset();
-            }
-            running = false;
-            setStatus('Stopped');
-        }
+        releaseBtn.addEventListener('click', () => {
+            startScanner('RELEASE');
+        });
+        cutHBtn.addEventListener('click', () => {
+            startScanner('CUT');
+        });
+        cncBtn.addEventListener('click', () => {
+            startScanner('CNC');
+        });
+        assemblyBtn.addEventListener('click', () => {
+            startScanner('ASSEMBLY');
+        });
+        qcBtn.addEventListener('click', () => {
+            startScanner('QC');
+        });
 
-        startBtn.addEventListener('click', startScanner);
-        stopBtn.addEventListener('click', stopScanner);
+
+
+
+        clearLogBtn.addEventListener('click', () => {
+            logEl.replaceChildren();
+        });
+
+        for (const scan of pendingScans) {
+            addLog(scan, 'Pending sync');
+        }
+        window.addEventListener('online', syncPendingScans);
+        window.setInterval(syncPendingScans, 15000);
+        syncPendingScans();
+
+
+
 
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').catch(() => { });
