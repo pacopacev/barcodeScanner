@@ -3,12 +3,18 @@
 
 <head>
     <meta charset="utf-8" />
+    <!-- Makes the page fit phone/tablet screens (viewport-fit=cover = use the full screen incl. notch) -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Code 39 Scanner</title>
+    <title>Flowbit JO Scanner</title>
+    <!-- PWA manifest: lets the page be installed like an app on the home screen -->
     <link rel="manifest" href="/manifest.json" />
+    <!-- Color of the browser toolbar on mobile -->
     <meta name="theme-color" content="#111827" />
+    <!-- ZXing browser library (loaded from CDN): provides the camera barcode reader -->
     <script src="https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
+
     <style>
+        /* ===== Global theme: dark colors and system font ===== */
         :root {
             color-scheme: dark;
             font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -20,6 +26,7 @@
             color: #f9fafb;
         }
 
+        /* ===== Top bar: stays visible when the page scrolls ===== */
         header {
             padding: 12px 16px;
             background: #1f2937;
@@ -33,12 +40,14 @@
             margin: 0;
         }
 
+        /* Main content: elements stacked vertically with a gap between them */
         main {
             padding: 16px;
             display: grid;
             gap: 12px;
         }
 
+        /* Camera preview area */
         #video {
             width: 100%;
             max-height: 55vh;
@@ -47,6 +56,7 @@
             object-fit: cover;
         }
 
+        /* ===== Status message box (changes color by state) ===== */
         .status {
             padding: 10px 12px;
             border-radius: 8px;
@@ -58,14 +68,19 @@
             background: #065f46;
         }
 
+        /* green = success */
         .status.warn {
             background: #92400e;
         }
 
+        /* orange = warning / pending */
         .status.error {
             background: #991b1b;
         }
 
+        /* red = error */
+
+        /* ===== Buttons row ===== */
         .controls {
             display: flex;
             gap: 8px;
@@ -75,16 +90,50 @@
             flex: 1;
             padding: 12px;
             border: 0;
+
             border-radius: 8px;
             font-weight: 600;
-            background: #2563eb;
+            /* background: #2563eb; */
             color: white;
         }
 
-        button.secondary {
-            background: #4b5563;
+        /* "Clear log" button turns red on hover */
+        #clearLogBtn:hover {
+            opacity: 0.9;
+            background: red;
         }
 
+        /* Hover effect for all buttons; :active = while the process button is pressed */
+        button:hover,
+        #releaseBtn:active,
+        #cutHBtn:active,
+        #cncBtn:active,
+        #assemblyBtn:active,
+        #qcBtn:active {
+            opacity: 0.9;
+            background: #1e40af;
+        }
+
+
+        #clearLogBtn {
+            margin-bottom: 13px;
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        /* button.secondary {
+            background: #4b5563;
+        } */
+
+        /* Added by JS to the currently selected process button (highlight) */
+        .btn-clicked {
+            background: #1d4ed8 !important;
+        }
+
+        /* ===== List of last scanned barcodes ===== */
         #log {
             list-style: none;
             padding: 0;
@@ -103,79 +152,114 @@
             gap: 8px;
         }
 
+        /* Small gray text (time, state) */
         .muted {
             color: #9ca3af;
             font-size: 12px;
+
         }
     </style>
 </head>
 
 <body>
     <header>
-        <h1>FLOWBIT SCANNER V1.1.7</h1>
+        <!-- The version number is filled in by the module script below -->
+        <h1>Flowbit JO Scanner <span id="ver"></span></h1>
     </header>
 
     <main>
+        <!-- Live camera picture; the ZXing reader attaches the camera stream here -->
         <video id="video" playsinline muted></video>
 
+        <!-- Message line: tells the user what is happening (Bulgarian: "Choose a process and point the camera at a barcode to start scanning.") -->
         <div id="status" class="status">
-            Изберете процес, позволете камерата и насочете към баркод, за да започнете сканиране.
+            Изберете процес и насочете камерата към баркод, за да започнете сканиране.
         </div>
 
+        <!-- Process buttons: choosing one starts the camera and sets which station the scans belong to -->
         <div class="controls">
             <button id="releaseBtn" class="secondary">RELEASE</button>
-            <button id="cutHBtn" class="secondary">CUT</button>
-            <button id="cncBtn" class="secondary">CNC</button>
-            <button id="assemblyBtn" class="secondary">ASSEMBLY</button>
+            <button id="cutHBtn" class="secondary">РЯЗАНЕ</button> <!-- CUT -->
+            <button id="cncBtn" class="secondary">ЦПУ</button> <!-- CNC -->
+            <button id="assemblyBtn" class="secondary">МОНТАЖ</button> <!-- ASSEMBLY -->
             <button id="qcBtn" class="secondary">QC</button>
         </div>
 
+        <!-- Log of recent scans + button to clear it ("Last scanned" / "CLEAR LAST SCANNED") -->
         <div>
             <div class="controls">
-                <div class="muted">Recent scans</div>
-                <button id="clearLogBtn" class="secondary">Clear recent</button>
+                <div class="muted">Последно сканирани:</div>
+                <button id="clearLogBtn" class="secondary">ИЗЧИСТИ ПОСЛЕДНИ СКАНИРАНИ</button>
             </div>
             <ul id="log"></ul>
         </div>
     </main>
 
+
+
+    <!-- ZXing core library (loaded from CDN) -->
     <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+
+    <!-- Module script: imports the app version from utils.js and shows it in the header -->
+    <script type="module">
+        import { version } from "/utils.js";
+        const dateNow = new Date();
+        const verBuild = `${dateNow.getFullYear()}-${String(dateNow.getMonth() + 1).padStart(2, '0')}-${String(dateNow.getDate()).padStart(2, '0')}`;
+        const verString = `${version.ver} (${verBuild})`;
+        document.getElementById("ver").textContent = verString;
+    </script>
+
     <script>
+
+
+
+        // ===== Shortcuts to page elements =====
         const video = document.getElementById('video');
         const statusEl = document.getElementById('status');
         const logEl = document.getElementById('log');
         const clearLogBtn = document.getElementById('clearLogBtn');
+        clearLogBtn.disabled = true;
 
 
+        // Process buttons
         const releaseBtn = document.getElementById('releaseBtn');
         const cutHBtn = document.getElementById('cutHBtn');
         const cncBtn = document.getElementById('cncBtn');
         const assemblyBtn = document.getElementById('assemblyBtn');
         const qcBtn = document.getElementById('qcBtn');
 
+        // ===== Settings and state =====
         const DUPLICATE_WINDOW_MS = 3000; // ignore same code locally for 3s
-        const PENDING_SCANS_KEY = 'pendingBarcodeScans';
-        const recentScans = new Map();
+        const PENDING_SCANS_KEY = 'pendingBarcodeScans'; // localStorage key for scans not yet sent to the server
+        const recentScans = new Map(); // remembers when each barcode was last scanned (for the local duplicate check)
+
+        // Queue of scans waiting to be sent to the server.
+        // On page load it is restored from localStorage, so scans survive a page reload or no internet.
         const pendingScans = (() => {
             try {
                 const scans = JSON.parse(localStorage.getItem(PENDING_SCANS_KEY) || '[]');
+                // Keep only valid items (must have a text id and a text barcode)
                 return Array.isArray(scans)
                     ? scans.filter(scan => scan && typeof scan.id === 'string' && typeof scan.barcode === 'string')
                     : [];
             } catch {
+                // Corrupted or unavailable storage: start with an empty queue
                 return [];
             }
         })();
 
-        let codeReader = null;
-        let running = false;
-        let starting = false;
-        let activeProcess = '';
-        let syncingScans = false;
+        let codeReader = null;     // the ZXing reader object
+        let running = false;       // true while the camera is scanning
+        let starting = false;      // true while the camera is being started (prevents double start)
+        let activeProcess = '';    // currently selected process (RELEASE, CUT, CNC, ...)
+        let syncingScans = false;  // true while the queue is being sent (prevents two syncs at once)
 
+        // Unique ID of this browser/device. Created once, saved in localStorage, reused next time.
+        // The server uses it to tell devices apart (e.g. for its duplicate check).
         const deviceId = (() => {
             let id = localStorage.getItem('scannerDeviceId');
             if (!id) {
+                // No saved ID yet: make a random one (fallback for old browsers without randomUUID)
                 id = crypto.randomUUID
                     ? crypto.randomUUID()
                     : String(Date.now()) + Math.random();
@@ -184,14 +268,17 @@
             return id;
         })();
 
+        // Shows a message in the status box; type = '', 'ok', 'warn' or 'error' (sets the color)
         function setStatus(text, type = '') {
             statusEl.textContent = text;
             statusEl.className = 'status ' + type;
         }
 
+        // Adds a new row at the top of the log list: barcode on the left, process/time/state on the right
         function addLog(scan, state) {
+            clearLogBtn.disabled = false;
             const li = document.createElement('li');
-            li.id = `scan-${scan.id}`;
+            li.id = `scan-${scan.id}`; // id lets us find and update this row later
 
             const barcode = document.createElement('span');
             barcode.textContent = scan.barcode;
@@ -204,11 +291,13 @@
 
             logEl.prepend(li);
 
+            // Keep only the last 20 rows
             while (logEl.children.length > 20) {
                 logEl.lastChild.remove();
             }
         }
 
+        // Changes the state text of an existing log row (e.g. "Pending sync" -> "Saved")
         function updateLogState(scan, state) {
             const row = document.getElementById(`scan-${scan.id}`);
             const details = row?.lastElementChild;
@@ -217,6 +306,7 @@
             }
         }
 
+        // Saves the pending queue to localStorage; returns true if it worked, false if storage failed
         function persistPendingScans() {
             try {
                 localStorage.setItem(PENDING_SCANS_KEY, JSON.stringify(pendingScans));
@@ -226,13 +316,18 @@
             }
         }
 
+        // Sends all queued scans to the server, one by one.
+        // A scan is removed from the queue only after the server confirms it.
+        // If one fails (e.g. no internet), it stops and tries again later.
         async function syncPendingScans() {
+            // Do nothing if a sync is already running or there is nothing to send
             if (syncingScans || pendingScans.length === 0) return;
 
             syncingScans = true;
             try {
-                for (const scan of [...pendingScans]) {
+                for (const scan of [...pendingScans]) { // loop over a copy, because we remove items inside the loop
                     try {
+                        // Route is chosen by process, e.g. /cut, /cnc, /qc (or /scan if no process)
                         const endpoint = scan.process ? `/${scan.process}` : '/scan';
                         const res = await fetch(endpoint, {
                             method: 'POST',
@@ -245,42 +340,51 @@
                         });
                         const data = await res.json().catch(() => ({}));
 
+                        // HTTP error (400, 500, ...): treat as failure so the scan stays in the queue
                         if (!res.ok) {
                             throw new Error(data.error || `HTTP ${res.status}`);
                         }
 
+                        // Success: remove this scan from the queue and save the queue
                         const index = pendingScans.findIndex(item => item.id === scan.id);
                         if (index !== -1) pendingScans.splice(index, 1);
                         persistPendingScans();
 
+                        // Server says duplicate = same scan was saved within its 5-second window
                         const state = data.duplicate ? 'Already saved' : 'Saved';
                         updateLogState(scan, state);
                         setStatus(`${state}: ${scan.barcode} · ${(scan.process || '').toUpperCase() || 'SCAN'}`, data.duplicate ? 'warn' : 'ok');
 
+                        // Short vibration on real saves (if the device supports it)
                         if (!data.duplicate && navigator.vibrate) {
                             navigator.vibrate(50);
                         }
                     } catch (err) {
+                        // Network or server problem: keep the scan queued and stop for now
                         updateLogState(scan, 'Pending sync');
                         setStatus(`Waiting to sync ${scan.barcode}: ${err.message}`, 'warn');
                         break;
                     }
                 }
             } finally {
+                // Always allow the next sync, even if something went wrong
                 syncingScans = false;
             }
         }
 
-        async function saveBarcode(rawCode, process="") {
+        // Called for every barcode the camera reads: cleans it, checks duplicates,
+        // puts it in the pending queue and starts sending.
+        async function saveBarcode(rawCode, process = "") {
             const barcode = String(rawCode || '').trim().toUpperCase();
             const processName = String(process || '').trim().toLowerCase();
             if (!barcode) return;
 
             const now = Date.now();
-            const scanKey = `${processName}:${barcode}`;
+            const scanKey = `${processName}:${barcode}`; // same barcode in a different process is not a duplicate
             const last = recentScans.get(scanKey);
 
             // Client-side duplicate prevention
+            // (the camera sees the same barcode many times per second)
             if (last && now - last < DUPLICATE_WINDOW_MS) {
                 setStatus(`Ignored duplicate locally: ${barcode}`, 'warn');
                 return;
@@ -293,6 +397,7 @@
                 if (now - t > 10000) recentScans.delete(k);
             }
 
+            // Build the scan record that goes into the queue
             const scan = {
                 id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 barcode,
@@ -301,7 +406,7 @@
                 scannedAt: new Date().toISOString()
             };
             pendingScans.push(scan);
-            const stored = persistPendingScans();
+            const stored = persistPendingScans(); // save the queue so the scan is not lost
             addLog(scan, stored ? 'Pending sync' : 'Not saved locally');
             setStatus(
                 stored
@@ -309,18 +414,22 @@
                     : `Could not save ${barcode} on this device`,
                 stored ? 'warn' : 'error'
             );
-            syncPendingScans();
+            syncPendingScans(); // try to send immediately
         }
 
-        async function startScanner(process="") {
+        // Starts the camera and begins reading barcodes for the given process.
+        // If it is already running, it only switches the active process.
+        async function startScanner(process = "") {
             activeProcess = String(process || '').trim().toLowerCase();
             if (running || starting) {
-                setStatus(`Scanning for ${activeProcess.toUpperCase() || 'SCAN'}`);
+                // Camera already on: just tell the user which process is active now
+                setStatus(`Сканиране за ${activeProcess.toUpperCase() || 'SCAN'}`);
                 return;
             }
 
             starting = true;
             try {
+                // Reader settings: only Code 39 barcodes, and try harder to decode (slower but more accurate)
                 const hints = new Map();
                 hints.set(
                     ZXing.DecodeHintType.POSSIBLE_FORMATS,
@@ -328,11 +437,14 @@
                 );
                 hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
+                // Create the reader; 500 = wait 500 ms between decode attempts
                 codeReader = new ZXingBrowser.BrowserMultiFormatReader(hints, 500);
 
 
+                // Get the list of cameras on the device
                 const devices = await ZXingBrowser.BrowserMultiFormatReader.listVideoInputDevices();
 
+                // Prefer the back camera; otherwise use the last camera in the list
                 const backCamera =
                     devices.find(d => /back|rear|environment/i.test(d.label)) ||
                     devices[devices.length - 1];
@@ -341,11 +453,13 @@
                     throw new Error('No camera found');
                 }
 
+                // Start continuous scanning; the callback runs every time something is decoded
                 await codeReader.decodeFromVideoDevice(
                     backCamera.deviceId,
                     video,
                     (result, err) => {
                         if (result) {
+                            // A barcode was read: save it for the currently selected process
                             saveBarcode(result.getText(), activeProcess);
                         }
                         // ZXing continuously reports "not found" errors.
@@ -354,7 +468,8 @@
                 );
 
                 running = true;
-                setStatus(`Scanning for ${activeProcess.toUpperCase() || 'SCAN'}... point at a Code 39 barcode.`);
+                // Bulgarian: "Scanning barcodes for X... point the camera at the barcode."
+                setStatus(`Сканиране на баркоди за ${activeProcess.toUpperCase() || 'SCAN'}... насочи камерата към баркода.`);
             } catch (err) {
                 setStatus(`Camera error: ${err.message}`, 'error');
             } finally {
@@ -362,39 +477,117 @@
             }
         }
 
+        // Tracks which process button is selected (only one can be true at a time)
+        var btnState = {
+            release: false,
+            cut: false,
+            cnc: false,
+            assembly: false,
+            qc: false
+        };
+
+        // Highlights the selected button and removes the highlight from the others,
+        // based on the values in btnState
+        async function btnChangeState(releaseBtn, cutHBtn, cncBtn, assemblyBtn, qcBtn) {
+            releaseBtn.classList.toggle('btn-clicked', btnState.release);
+            cutHBtn.classList.toggle('btn-clicked', btnState.cut);
+            cncBtn.classList.toggle('btn-clicked', btnState.cnc);
+            assemblyBtn.classList.toggle('btn-clicked', btnState.assembly);
+            qcBtn.classList.toggle('btn-clicked', btnState.qc);
+
+        }
+
+        // ===== Button click handlers =====
+        // Each one: marks its own button as selected, clears the others,
+        // updates the highlight, then starts (or switches) the scanner for that process.
+
+        // RELEASE button
         releaseBtn.addEventListener('click', () => {
+
+            btnState.release = true;
+            btnState.cut = false;
+            btnState.cnc = false;
+            btnState.assembly = false;
+            btnState.qc = false;
+
+            btnChangeState(releaseBtn, cutHBtn, cncBtn, assemblyBtn, qcBtn);
+
             startScanner('RELEASE');
         });
+        // CUT button
         cutHBtn.addEventListener('click', () => {
+
+
+            btnState.cnc = false;
+            btnState.release = false;
+            btnState.cut = true;
+            btnState.assembly = false;
+            btnState.qc = false;
+
+            btnChangeState(releaseBtn, cutHBtn, cncBtn, assemblyBtn, qcBtn);
+
             startScanner('CUT');
         });
+        // CNC button
         cncBtn.addEventListener('click', () => {
+
+            btnState.cnc = true;
+            btnState.release = false;
+            btnState.cut = false;
+            btnState.assembly = false;
+            btnState.qc = false;
+            btnChangeState(releaseBtn, cutHBtn, cncBtn, assemblyBtn, qcBtn);
+
             startScanner('CNC');
         });
+        // ASSEMBLY button
         assemblyBtn.addEventListener('click', () => {
+            btnState.assembly = true;
+            btnState.release = false;
+            btnState.cut = false;
+            btnState.cnc = false;
+            btnState.qc = false;
+            btnChangeState(releaseBtn, cutHBtn, cncBtn, assemblyBtn, qcBtn);
+
             startScanner('ASSEMBLY');
         });
+        // QC button
         qcBtn.addEventListener('click', () => {
+            btnState.qc = true;
+            btnState.release = false;
+            btnState.cut = false;
+            btnState.cnc = false;
+            btnState.assembly = false;
+            btnChangeState(releaseBtn, cutHBtn, cncBtn, assemblyBtn, qcBtn);
+
             startScanner('QC');
         });
 
 
 
 
+        // "Clear last scanned" button: empties the log list on screen
+        // (does not touch the pending queue or the database)
         clearLogBtn.addEventListener('click', () => {
             logEl.replaceChildren();
         });
 
+        // ===== Runs when the page loads =====
+        // Show scans that were left in the queue from before (e.g. after a reload)
         for (const scan of pendingScans) {
             addLog(scan, 'Pending sync');
         }
+        // Try to send the queue when internet comes back
         window.addEventListener('online', syncPendingScans);
+        // ...and also retry every 15 seconds
         window.setInterval(syncPendingScans, 15000);
+        // ...and once right now
         syncPendingScans();
 
 
 
 
+        // Register the service worker (enables offline/PWA features); errors are ignored
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').catch(() => { });
         }
