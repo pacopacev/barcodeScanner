@@ -301,6 +301,7 @@
         function updateLogState(scan, state) {
             const row = document.getElementById(`scan-${scan.id}`);
             const details = row?.lastElementChild;
+            // if (!details) clearLogBtn.disabled = true; // if the row is gone, disable the clear button
             if (details) {
                 details.textContent = `${scan.process ? scan.process.toUpperCase() : 'SCAN'} · ${new Date(scan.scannedAt).toLocaleTimeString()} · ${state}`;
             }
@@ -349,6 +350,7 @@
                         const index = pendingScans.findIndex(item => item.id === scan.id);
                         if (index !== -1) pendingScans.splice(index, 1);
                         persistPendingScans();
+                        beep(880, 150, 0.3); // short beep on success
 
                         // Server says duplicate = same scan was saved within its 5-second window
                         const state = data.duplicate ? 'Already saved' : 'Saved';
@@ -357,6 +359,7 @@
 
                         // Short vibration on real saves (if the device supports it)
                         if (!data.duplicate && navigator.vibrate) {
+                            beep(880, 150, 0.3); // short beep on success
                             navigator.vibrate(50);
                         }
                     } catch (err) {
@@ -407,6 +410,7 @@
             };
             pendingScans.push(scan);
             const stored = persistPendingScans(); // save the queue so the scan is not lost
+            beep(880, 150, 0.3); // short beep on success
             addLog(scan, stored ? 'Pending sync' : 'Not saved locally');
             setStatus(
                 stored
@@ -592,6 +596,40 @@
             navigator.serviceWorker.register('/sw.js').catch(() => { });
         }
     </script>
+
+    <script>
+        // One AudioContext for the whole page (webkit prefix is for older browsers)
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = AudioCtx ? new AudioCtx() : null;
+
+        function beep(frequency = 600, duration = 80, volume = 0.3) {
+            if (!audioCtx) return; // browser has no Web Audio
+
+            // Browsers start the context "suspended" until a user click/tap
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const osc = audioCtx.createOscillator();   // makes the tone
+            const gain = audioCtx.createGain();        // controls the volume
+
+            osc.type = 'square';                       // 'sine' is softer, 'square' is sharper
+            osc.frequency.value = frequency;           // pitch in Hz
+            gain.gain.value = volume;                  // 0 to 1
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);        // send to the speakers
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration / 1000);
+        }
+
+        document.getElementById('releaseBtn').addEventListener('click', () => beep());
+        document.getElementById('cutHBtn').addEventListener('click', () => beep());
+        document.getElementById('cncBtn').addEventListener('click', () => beep());
+        document.getElementById('assemblyBtn').addEventListener('click', () => beep());
+        document.getElementById('qcBtn').addEventListener('click', () => beep());
+        document.getElementById('clearLogBtn').addEventListener('click', () => beep(300, 200, 0.3));
+    </script>
 </body>
+
 
 </html>
