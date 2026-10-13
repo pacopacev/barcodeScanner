@@ -164,7 +164,7 @@
 <body>
     <header>
         <!-- The version number is filled in by the module script below -->
-        <h1>JO Scanner</h1>
+        <h1>WIP TRACKING SCANNER</h1>
     </header>
 
     <main>
@@ -194,7 +194,7 @@
             <ul id="log"></ul>
         </div>
         <footer class="muted" style="font-size: 12px; margin-top: 12px;">
-            <div>Flowbit JO Scanner <span id="ver"></span></div>
+            <div>Flowbit WIP TRACKING SCANNER <span id="ver"></span></div>
             <div>© 2026 Plamen Dimitrov. All rights reserved.</div>
         </footer>
     </main>
@@ -211,6 +211,46 @@
         const verBuild = `${dateNow.getFullYear()}-${String(dateNow.getMonth() + 1).padStart(2, '0')}-${String(dateNow.getDate()).padStart(2, '0')}`;
         const verString = `${version.ver} (${verBuild})`;
         document.getElementById("ver").textContent = verString;
+    </script>
+
+
+
+    <script>
+
+
+
+
+        let wakeLock = null;
+
+        // window.addEventListener('beforeunload', () => {
+        //     allowSleep();
+        // });
+
+        window.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                keepAwake();
+            } else {
+                allowSleep();
+            }
+        });
+
+        async function keepAwake() {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                wakeLock.addEventListener('release', () => console.log('Wake lock released'));
+            } catch (err) {
+                console.error('Wake lock failed:', err);
+            }
+        }
+
+        function allowSleep() {
+            if (wakeLock) {
+                wakeLock.release();
+                wakeLock = null;
+            }
+        }
+
+
     </script>
 
     <script>
