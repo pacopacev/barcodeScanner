@@ -673,39 +673,39 @@
         }
 
 
-        const startupAudio = new Audio('/hello.mp3');
-        startupAudio.preload = 'auto';
-        startupAudio.volume = 0.5;
+        // const startupAudio = new Audio('/hello.mp3');
+        // startupAudio.preload = 'auto';
+        // startupAudio.volume = 0.5;
 
-        let played = false;
+        // let played = false;
 
-        function removeListeners() {
-            document.removeEventListener('pointerdown', playStartupMp3);
-            document.removeEventListener('keydown', playStartupMp3);
-        }
+        // function removeListeners() {
+        //     document.removeEventListener('pointerdown', playStartupMp3);
+        //     document.removeEventListener('keydown', playStartupMp3);
+        // }
 
-        async function playStartupMp3() {
-            if (played) return;
-            try {
-                startupAudio.currentTime = 0;
-                await startupAudio.play();
-                played = true;          // only mark as played if it really started
-                removeListeners();
-            } catch {
-                // Autoplay blocked: wait for the next user interaction.
-            }
-        }
+        // async function playStartupMp3() {
+        //     if (played) return;
+        //     try {
+        //         startupAudio.currentTime = 0;
+        //         await startupAudio.play();
+        //         played = true;          // only mark as played if it really started
+        //         removeListeners();
+        //     } catch {
+        //         // Autoplay blocked: wait for the next user interaction.
+        //     }
+        // }
 
-        window.addEventListener('load', () => {
-            setTimeout(playStartupMp3, 1000);
-        });
+        // window.addEventListener('load', () => {
+        //     setTimeout(playStartupMp3, 1000);
+        // });
 
-        document.addEventListener('pointerdown', playStartupMp3);
-        document.addEventListener('keydown', playStartupMp3);
+        // document.addEventListener('pointerdown', playStartupMp3);
+        // document.addEventListener('keydown', playStartupMp3);
 
-        document.addEventListener('pointerdown', playStartupMp3, { once: true });
-        document.addEventListener('touchstart', playStartupMp3, { once: true });
-        document.addEventListener('keydown', playStartupMp3, { once: true });
+        // document.addEventListener('pointerdown', playStartupMp3, { once: true });
+        // document.addEventListener('touchstart', playStartupMp3, { once: true });
+        // document.addEventListener('keydown', playStartupMp3, { once: true });
 
 
 
