@@ -8,6 +8,7 @@ const STATION_IDS = {
   qc: 4,
 };
 
+const STATION_SEQUENCE = ['release', 'cut', 'cnc', 'assembly', 'qc'];
 const SCAN_PATHS = new Set(['/scan', '/release', '/cut', '/cnc', '/assembly', '/qc']);
 
 export default {
@@ -57,7 +58,29 @@ async function handleScan(request, env, ctx) {
     connect_timeout: 10,
   });
 
+
+
   try {
+    const stationIndex = STATION_SEQUENCE.indexOf(processName);
+    if (stationIndex > 0) {
+      const previousStationId = STATION_IDS[STATION_SEQUENCE[stationIndex - 1]];
+      const [previousScan] = await sql`
+        SELECT EXISTS (
+          SELECT 1
+          FROM barcode_scans
+          WHERE barcode = ${barcode}::text
+            AND production_station_id = ${previousStationId}::int
+        ) AS scanned
+      `;
+
+      if (!previousScan.scanned) {
+        return Response.json(
+          { error: `Scan ${STATION_SEQUENCE[stationIndex - 1]} before ${processName}` },
+          { status: 409 },
+        );
+      }
+    }
+
     const rows = await sql`
   INSERT INTO barcode_scans (barcode, device_id, production_station_id)
   SELECT ${barcode}::text, ${deviceId}::text, ${productionStationId}::int

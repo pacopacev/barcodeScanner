@@ -152,6 +152,10 @@
             gap: 8px;
         }
 
+        #log li.rejected {
+            background: #7f1d1d;
+        }
+
         /* Small gray text (time, state) */
         .muted {
             color: #9ca3af;
@@ -347,6 +351,7 @@
             const details = row?.lastElementChild;
             // if (!details) clearLogBtn.disabled = true; // if the row is gone, disable the clear button
             if (details) {
+                row.classList.toggle('rejected', state === 'Rejected');
                 details.textContent = `${scan.process ? scan.process.toUpperCase() : 'SCAN'} · ${new Date(scan.scannedAt).toLocaleTimeString()} · ${state}`;
             }
         }
@@ -384,6 +389,15 @@
                             })
                         });
                         const data = await res.json().catch(() => ({}));
+
+                        if (res.status === 409) {
+                            const index = pendingScans.findIndex(item => item.id === scan.id);
+                            if (index !== -1) pendingScans.splice(index, 1);
+                            persistPendingScans();
+                            updateLogState(scan, 'Rejected');
+                            setStatus(data.error || 'Scan rejected: process is out of order', 'warn');
+                            continue;
+                        }
 
                         // HTTP error (400, 500, ...): treat as failure so the scan stays in the queue
                         if (!res.ok) {
