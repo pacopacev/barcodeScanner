@@ -40,6 +40,20 @@
             margin: 0;
         }
 
+        #header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#header-bar h1 {
+    margin-right: auto;
+}
+
+#header-bar a {
+    margin-left: auto;
+}
+
         /* Main content: elements stacked vertically with a gap between them */
         main {
             padding: 16px;
@@ -50,7 +64,7 @@
         /* Camera preview area */
         #video {
             width: 100%;
-            max-height: 55vh;
+            max-height: 34vh;
             background: #000;
             border-radius: 12px;
             object-fit: cover;
@@ -166,9 +180,10 @@
 </head>
 
 <body>
-    <header>
+    <header id="header-bar">
         <!-- The version number is filled in by the module script below -->
         <h1>WIP TRACKING SCANNER</h1>
+        <a href="/help.html" style="color: #9ca3af; font-size: 12px; text-decoration: none;">Помощ</a>
     </header>
 
     <main>
