@@ -1,0 +1,6 @@
+$env:CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE = "postgres://user:password@host:5432/dbname"
+npx wrangler dev --ip 127.0.0.1 --port 8787
+
+
+
+npx wrangler dev --ip 127.0.0.1 --port 8787

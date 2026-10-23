@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="bg">
+
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<meta name="theme-color" content="#111827" />
+	<title>Сканирания по партида</title>
+	<style>
+		:root {
+			color-scheme: dark;
+			font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+			background: #111827;
+			color: #f9fafb;
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		body {
+			margin: 0;
+		}
+
+		header {
+			position: sticky;
+			top: 0;
+			z-index: 1;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 16px;
+			padding: 14px 20px;
+			background: #1f2937;
+			border-bottom: 1px solid #374151;
+		}
+
+		h1 {
+			margin: 0;
+			font-size: 18px;
+		}
+
+		a {
+			color: #cbd5e1;
+			font-size: 13px;
+			text-decoration: none;
+		}
+
+		a:hover {
+			color: white;
+			text-decoration: underline;
+		}
+
+		main {
+			width: min(100%, 1280px);
+			margin: 0 auto;
+			padding: 20px;
+		}
+
+		form {
+			display: flex;
+			align-items: end;
+			gap: 10px;
+			padding-bottom: 18px;
+			border-bottom: 1px solid #374151;
+		}
+
+		label {
+			display: grid;
+			flex: 1;
+			gap: 6px;
+			color: #d1d5db;
+			font-size: 13px;
+		}
+
+		input {
+			width: 100%;
+			min-height: 42px;
+			padding: 9px 11px;
+			border: 1px solid #4b5563;
+			border-radius: 6px;
+			background: #111827;
+			color: #f9fafb;
+			font: inherit;
+		}
+
+		button {
+			min-height: 42px;
+			padding: 9px 14px;
+			border: 0;
+			border-radius: 6px;
+			background: #2563eb;
+			color: white;
+			font: inherit;
+			font-weight: 600;
+			cursor: pointer;
+		}
+
+		button:hover:not(:disabled) {
+			background: #1d4ed8;
+		}
+
+		button:disabled {
+			cursor: wait;
+			opacity: 0.55;
+		}
+
+		.status {
+			min-height: 42px;
+			padding: 12px 0;
+			color: #cbd5e1;
+			font-size: 13px;
+		}
+
+		.status.error {
+			color: #fca5a5;
+		}
+
+		.table-wrap {
+			overflow-x: auto;
+		}
+
+		table {
+			width: 100%;
+			border-collapse: collapse;
+			text-align: left;
+			font-size: 13px;
+		}
+
+		th,
+		td {
+			padding: 10px 9px;
+			border-bottom: 1px solid #374151;
+			vertical-align: middle;
+		}
+
+		th {
+			color: #9ca3af;
+			font-size: 11px;
+			font-weight: 600;
+			text-transform: uppercase;
+		}
+
+		td.barcode {
+			font-weight: 700;
+			overflow-wrap: anywhere;
+		}
+
+		.delete-button {
+			min-height: 34px;
+			padding: 6px 10px;
+			background: #991b1b;
+			white-space: nowrap;
+		}
+
+		.delete-button:hover:not(:disabled) {
+			background: #b91c1c;
+		}
+
+		@media (max-width: 650px) {
+			header {
+				padding: 12px 14px;
+			}
+
+			main {
+				padding: 14px;
+			}
+
+			form {
+				align-items: stretch;
+				flex-direction: column;
+			}
+
+			form button {
+				width: 100%;
+			}
+
+			table {
+				min-width: 760px;
+			}
+		}
+	</style>
+</head>
+
+<body>
+	<header>
+		<h1>Сканирания по партида</h1>
+		<a href="/">Към скенера</a>
+	</header>
+
+	<main>
+		<form id="search-form">
+			<label for="batch-ids">
+				ID на партида (може няколко, разделени със запетая или интервал)
+				<input id="batch-ids" name="batchIds" inputmode="numeric" placeholder="60, 61 Примерно!" required />
+			</label>
+			<button id="search-button" type="submit">Търси</button>
+		</form>
+
+		<div id="status" class="status" role="status" aria-live="polite">Въведете ID на партида, за да заредите сканиранията.</div>
+		<div class="table-wrap">
+			<table>
+				<thead>
+					<tr>
+						<th>Партида</th>
+						<th>Поръчка</th>
+						<th>Процес</th>
+						<th>Устройство</th>
+						<th>Дата и час</th>
+						<th>Действие</th>
+					</tr>
+				</thead>
+				<tbody id="scan-rows"></tbody>
+			</table>
+		</div>
+	</main>
+
+	<script>
+		const form = document.getElementById('search-form');
+		const batchInput = document.getElementById('batch-ids');
+		const searchButton = document.getElementById('search-button');
+		const statusEl = document.getElementById('status');
+		const rowsEl = document.getElementById('scan-rows');
+		const stationNames = { 1: 'CUT', 2: 'CNC', 3: 'ASSEMBLY', 4: 'QC', 6: 'RELEASE' };
+		let currentBatchIds = [];
+
+		function setStatus(message, isError = false) {
+			statusEl.textContent = message;
+			statusEl.classList.toggle('error', isError);
+		}
+
+		function parseBatchIds(value) {
+			const tokens = value.trim().split(/[\s,;]+/).filter(Boolean);
+			if (!tokens.length || tokens.some(token => !/^\d+$/.test(token))) return null;
+			const ids = [...new Set(tokens.map(Number))];
+			return ids.every(id => Number.isSafeInteger(id) && id > 0) ? ids : null;
+		}
+
+		function makeCell(value, className = '') {
+			const cell = document.createElement('td');
+			cell.textContent = value == null ? '' : String(value);
+			if (className) cell.className = className;
+			return cell;
+		}
+
+		function renderScans(scans) {
+			rowsEl.replaceChildren();
+			for (const scan of scans) {
+				const row = document.createElement('tr');
+				row.append(
+					makeCell(scan.batch_id),
+					makeCell(scan.job_order_number),
+					makeCell(stationNames[scan.production_station_id] || scan.production_station_id || '—'),
+					makeCell(scan.device_id || '—'),
+					makeCell(scan.scanned_at ? new Date(scan.scanned_at).toLocaleString() : '—')
+				);
+
+				const actionCell = document.createElement('td');
+				const deleteButton = document.createElement('button');
+				deleteButton.type = 'button';
+				deleteButton.className = 'delete-button';
+				deleteButton.textContent = 'Изтрий';
+				deleteButton.setAttribute('aria-label', `Изтрий сканиране ${scan.barcode}`);
+				deleteButton.addEventListener('click', () => deleteScan(scan, deleteButton));
+				actionCell.append(deleteButton);
+				row.append(actionCell);
+				rowsEl.append(row);
+			}
+		}
+
+		async function loadScans(batchIds) {
+			currentBatchIds = batchIds;
+			searchButton.disabled = true;
+			setStatus('Зареждане...');
+			try {
+				const query = new URLSearchParams({ batchIds: batchIds.join(',') });
+				const response = await fetch(`/api/scans?${query}`);
+				const data = await response.json();
+				if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+				renderScans(data.scans || []);
+				setStatus(`Намерени сканирания: ${(data.scans || []).length}`);
+			} catch (error) {
+				renderScans([]);
+				setStatus(`Грешка при зареждане: ${error.message}`, true);
+			} finally {
+				searchButton.disabled = false;
+			}
+		}
+
+		async function deleteScan(scan, button) {
+			if (!confirm(`Да изтрия ли сканирането на баркод ${scan.barcode}?`)) return;
+			button.disabled = true;
+			try {
+				const response = await fetch(`/api/scans/${encodeURIComponent(scan.scan_id)}`, { method: 'DELETE' });
+				const data = await response.json();
+				if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+				await loadScans(currentBatchIds);
+			} catch (error) {
+				button.disabled = false;
+				setStatus(`Грешка при изтриване: ${error.message}`, true);
+			}
+		}
+
+		form.addEventListener('submit', event => {
+			event.preventDefault();
+			const batchIds = parseBatchIds(batchInput.value);
+			if (!batchIds) {
+				setStatus('Въведете валидни положителни ID на партиди.', true);
+				return;
+			}
+			loadScans(batchIds);
+		});
+	</script>
+</body>
+
+</html>

@@ -19,6 +19,15 @@ export default {
       return handleScan(request, env, ctx);
     }
 
+    if (url.pathname === '/api/scans' && request.method === 'GET') {
+      return handleBatchScans(request, env, ctx);
+    }
+
+    const deleteScanMatch = url.pathname.match(/^\/api\/scans\/(\d+)$/);
+    if (deleteScanMatch && request.method === 'DELETE') {
+      return handleDeleteScan(deleteScanMatch[1], env, ctx);
+    }
+
     if (url.pathname === '/health') {
       return Response.json({ ok: true });
     }
@@ -103,6 +112,75 @@ async function handleScan(request, env, ctx) {
   } catch (err) {
     console.error(err);
     return Response.json({ error: 'Server error' }, { status: 500 });
+  } finally {
+    ctx.waitUntil(sql.end());
+  }
+}
+
+async function handleBatchScans(request, env, ctx) {
+  const rawBatchIds = new URL(request.url).searchParams.get('batchIds') || '';
+  const batchIds = rawBatchIds
+    .split(/[\s,;]+/)
+    .filter(Boolean)
+    .map(value => Number(value));
+
+  if (batchIds.length === 0 || batchIds.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+    return Response.json({ error: 'Enter one or more positive batch IDs' }, { status: 400 });
+  }
+
+  const sql = postgres(env.HYPERDRIVE.connectionString, {
+    max: 1,
+    idle_timeout: 5,
+    connect_timeout: 10,
+  });
+
+  try {
+    const scans = await sql`
+      SELECT
+        jbs.batch_id,
+        jbs.job_order_number,
+        bs.id::text AS scan_id,
+        bs.barcode,
+        bs.device_id,
+        bs.production_station_id,
+        bs.scanned_at
+      FROM jo_barcode_status AS jbs
+      JOIN barcode_scans AS bs ON bs.barcode = jbs.job_order_number
+      WHERE jbs.batch_id = ANY(${batchIds}::int[])
+      ORDER BY bs.scanned_at DESC
+    `;
+
+    return Response.json({ scans });
+  } catch (err) {
+    console.error(err);
+    return Response.json({ error: 'Could not load scans' }, { status: 500 });
+  } finally {
+    ctx.waitUntil(sql.end());
+  }
+}
+
+async function handleDeleteScan(scanId, env, ctx) {
+  const sql = postgres(env.HYPERDRIVE.connectionString, {
+    max: 1,
+    idle_timeout: 5,
+    connect_timeout: 10,
+  });
+
+  try {
+    const deleted = await sql`
+      DELETE FROM barcode_scans
+      WHERE id = ${scanId}::bigint
+      RETURNING id::text AS scan_id
+    `;
+
+    if (deleted.length === 0) {
+      return Response.json({ error: 'Scan not found' }, { status: 404 });
+    }
+
+    return Response.json({ success: true, scanId: deleted[0].scan_id });
+  } catch (err) {
+    console.error(err);
+    return Response.json({ error: 'Could not delete scan' }, { status: 500 });
   } finally {
     ctx.waitUntil(sql.end());
   }
