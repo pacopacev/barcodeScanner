@@ -251,7 +251,7 @@
 					makeCell(scan.batch_id),
 					makeCell(scan.job_order_number),
 					makeCell(stationNames[scan.production_station_id] || scan.production_station_id || '—'),
-					makeCell(scan.device_id || '—'),
+					makeCell(scan.first_name || '—'),
 					makeCell(scan.scanned_at ? new Date(scan.scanned_at).toLocaleString() : '—')
 				);
 

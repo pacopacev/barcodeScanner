@@ -142,10 +142,12 @@ async function handleBatchScans(request, env, ctx) {
         bs.id::text AS scan_id,
         bs.barcode,
         bs.device_id,
+        u.first_name,
         bs.production_station_id,
         bs.scanned_at
       FROM jo_barcode_status AS jbs
       JOIN barcode_scans AS bs ON bs.barcode = jbs.job_order_number
+      LEFT JOIN users as u ON u.device_id = bs.device_id
       WHERE jbs.batch_id = ANY(${batchIds}::int[])
       ORDER BY bs.scanned_at DESC
     `;
