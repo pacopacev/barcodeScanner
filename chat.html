@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="img-src data: https: 'self';">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="public/favicon-64x64.png" type="image/png" sizes="64x64">
+
+    <title>Chat-Pat Chat</title>
+
+    <style>
+        /* --- RESET & BASE --- */
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            /* ← prevents page scrolling, chat scrolls inside */
+            background: #000000;
+            font-family: Arial, sans-serif;
+            color: #fff;
+        }
+
+        /* --- FIXED HEADER --- */
+        .fixed-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 1000;
+            background-color: #2a2a2a;
+            border-bottom: 1px solid #fff;
+            padding: 8px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+            min-height: 70px;
+            /* gives a predictable height for main-content top offset */
+        }
+
+        .title {
+            flex: 0 0 auto;
+            padding-left: 0;
+            margin: 0;
+            font-size: 17px;
+        }
+
+        .title h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        /* header right side: user-name + input-bar */
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            flex: 1 1 auto;
+            justify-content: flex-end;
+        }
+
+        #input-user,
+        #input-room {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0;
+            background: transparent;
+        }
+
+        #room-name {
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: none;
+            font-size: 16px;
+            background: #fff;
+            color: #000;
+            width: 150px;
+        }
+
+        #user-name {
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: none;
+            font-size: 16px;
+            background: #fff;
+            color: #000;
+            width: 150px;
+        }
+
+        .indicator {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background-color: gray;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+            text-align: center;
+            line-height: 24px;
+            cursor: help;
+            flex-shrink: 0;
+            transition: background-color 0.2s;
+        }
+
+        .indicator:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            background: #333;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            white-space: nowrap;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+
+        #input-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0;
+            background: transparent;
+        }
+
+        #msg {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: none;
+            font-size: 16px;
+            background: #fff;
+            color: #000000;
+            width: 220px;
+        }
+
+        #send {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            background: #4a90e2;
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        #send:hover {
+            background: #357ac8;
+        }
+
+        #send:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #msg:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* --- MAIN CONTENT (fills space between header and footer) --- */
+        .main-content {
+            position: fixed;
+            top: 76px;
+            bottom: 56px;
+            left: 50%;
+            transform: translateX(-50%);
+            max-width: 1120px;
+            width: calc(100% - 32px);
+            background: #2a2a2a;
+            border-radius: 12px;
+            border: 1px solid #3a3a3a;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+            min-height: 0;
+        }
+
+        .chat {
+            flex: 1 1 auto;
+            min-height: 0;
+            height: 100%;
+        }
+
+        /* --- SCROLLABLE CHAT --- */
+        #chat {
+            height: 100%;
+            overflow-y: auto;
+            padding: 24px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            scroll-behavior: smooth;
+            min-height: 0;
+        }
+
+        /* custom scrollbar */
+        #chat::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #chat::-webkit-scrollbar-track {
+            background: #1e1e1e;
+            border-radius: 8px;
+        }
+
+        #chat::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 8px;
+        }
+
+        #chat::-webkit-scrollbar-thumb:hover {
+            background: #777;
+        }
+
+        /* --- MESSAGE BUBBLES (unchanged) --- */
+        .msg {
+            max-width: 70%;
+            padding: 10px 14px;
+            border-radius: 10px;
+            line-height: 1.4;
+            font-size: 15px;
+            word-wrap: break-word;
+        }
+
+        .me {
+            align-self: flex-end;
+            background: #4a90e2;
+            color: #fff;
+        }
+
+        .other {
+            align-self: flex-start;
+            background: #3a3a3a;
+            color: #fff;
+        }
+
+        .system-connected {
+            color: #4caf50;
+            align-self: flex-end;
+            font-size: 13px;
+            opacity: 0.7;
+        }
+
+        .system-disconnected {
+            color: #f44336;
+            align-self: flex-end;
+            font-size: 13px;
+            opacity: 0.7;
+        }
+
+        .system-connected1 {
+            color: #4caf50;
+            font-size: 13px;
+            opacity: 0.7;
+        }
+
+        .system-disconnected1 {
+            color: #f44336;
+            font-size: 13px;
+            opacity: 0.7;
+        }
+
+        /* --- FIXED FOOTER --- */
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 999;
+            background: #2a2a2a;
+            border-top: 1px solid #fff;
+            padding: 6px 20px;
+            box-sizing: border-box;
+        }
+
+        .footer-bottom {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 34px;
+            flex-wrap: wrap;
+            font-size: 13px;
+        }
+
+        .footer-bottom a {
+            color: #4a90e2;
+            text-decoration: none;
+        }
+
+        .footer-bottom a:hover {
+            text-decoration: underline;
+        }
+
+        /* --- RESPONSIVE TWEAKS --- */
+        @media (max-width: 860px) {
+            .fixed-header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 6px;
+                padding: 8px 12px;
+                min-height: auto;
+            }
+
+            .title h1 {
+                font-size: 17px;
+                text-align: center;
+            }
+
+            .header-controls {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 6px;
+            }
+
+            #input-user,
+            #input-room {
+                justify-content: center;
+            }
+
+            #input-bar {
+                justify-content: center;
+            }
+
+            #msg {
+                width: 100%;
+            }
+
+            #room-name {
+                width: 100%;
+            }
+
+            #user-name {
+                width: 100%;
+            }
+
+            .main-content {
+                top: 120px;
+                bottom: 70px;
+                width: calc(100% - 16px);
+                border-radius: 8px;
+            }
+
+            #chat {
+                padding: 16px 18px;
+            }
+
+            .footer-bottom {
+                gap: 16px;
+                font-size: 12px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .main-content {
+                top: 140px;
+                bottom: 80px;
+                width: calc(100% - 8px);
+                border-radius: 6px;
+            }
+
+            #chat {
+                padding: 12px 14px;
+                gap: 6px;
+            }
+
+            .msg {
+                max-width: 85%;
+                font-size: 14px;
+                padding: 8px 12px;
+            }
+
+            .fixed-header {
+                padding: 6px 8px;
+            }
+
+            .footer {
+                padding: 4px 10px;
+            }
+
+            .footer-bottom {
+                gap: 10px;
+                font-size: 11px;
+            }
+
+            #send {
+                padding: 8px 14px;
+                font-size: 14px;
+            }
+
+            #msg {
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+
+            #user-name {
+                padding: 6px 10px;
+                font-size: 14px;
+            }
+
+            #room-name {
+                padding: 6px 10px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header class="fixed-header">
+        <div class="title">
+            <h1>Chat-Pat Chat</h1>
+        </div>
+
+
+        <!-- <div id="input-room">
+            <input id="room-name" type="text" placeholder="Room Name" />
+            <span class="indicator" id="indicator" title="At least 3 characters">!</span>
+        </div> -->
+
+        <div id="input-user">
+            <input id="user-name" type="text" placeholder="Username" />
+            <span class="indicator" id="indicator" title="At least 3 characters">!</span>
+        </div>
+
+
+        <div id="input-bar">
+            <input id="msg" placeholder="Type a message…" />
+            <button id="send">Send</button>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <div class="chat">
+            <div id="chat"></div>
+        </div>
+    </main>
+
+
+
+
+
+
+
+
+    <footer class="footer">
+        <div class="footer-bottom">
+            <p id="footer-year"></p>
+            <a href="public/privacy_policy.html" target="_blank" style="color: #4a90e2; text-decoration: none;">Privacy
+                Policy</a>
+            <span id="conn"></span>
+        </div>
+    </footer>
+    <script>
+        const WS_URL = "wss://websocket-server.pgdimitrov.workers.dev/websocket";
+
+
+        const userNameInput = document.getElementById("user-name");
+        // userNameInput.addEventListener("input", () => {
+        //     const userName = userNameInput.value.trim();
+        //     if (userName) {
+        //         addMessage(`Hello, ${userName}! You can start chatting now.`, "system");
+        //     }
+        // });
+
+        const chat = document.getElementById("chat");
+
+        const msgInput = document.getElementById("msg");
+        msgInput.disabled = true;
+
+        const sendBtn = document.getElementById("send");
+        sendBtn.disabled = true;
+
+        userNameInput.addEventListener("input", () => {
+            if (userNameInput.value.length > 2) {
+                msgInput.disabled = false;
+
+
+            }
+            else {
+                msgInput.disabled = true;
+                sendBtn.disabled = true;
+            }
+        });
+
+        msgInput.addEventListener("input", () => {
+            if (msgInput.value.length > 0) {
+                sendBtn.disabled = false;
+                userNameInput.disabled = true;
+            }
+            else {
+                sendBtn.disabled = true;
+            }
+        });
+
+        sendBtn.addEventListener("click", () => {
+            if (msgInput.value.length > 0) {
+                sendBtn.disabled = true;
+            }
+        });
+
+
+
+
+        function addMessage(text, cls = "system") {
+            const div = document.createElement("div");
+            div.textContent = text;
+            div.className = "msg " + cls;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+            autoScrollMessages();
+
+            const conn = document.getElementById("conn");
+            conn.textContent = "Status: Connected";
+            conn.classList.add('system-connected1');
+
+        }
+
+        function updateConnectionStatus(status) {
+            const conn = document.getElementById("conn");
+            conn.textContent = `Status: ${status}`;
+            if (status === "Connected") {
+                conn.classList.remove('system-disconnected1');
+                conn.classList.add('system-connected1');
+            } else {
+                conn.classList.remove('system-connected1');
+                conn.classList.add('system-disconnected1');
+            }
+        }
+
+        let ws;
+
+        function connect() {
+            updateConnectionStatus("Connecting…");
+
+            ws = new WebSocket(WS_URL);
+
+            // ws.onopen = () => addMessage("Connected", "system-connected");
+            ws.onopen = () => {
+
+                updateConnectionStatus("Connected");
+            };
+
+
+            ws.onmessage = (e) => {
+                const t = e.data;
+                console.log("Received:", t);
+                if (t.includes("wrote")) addMessage(t, "me");
+                else addMessage(t, "other");
+            };
+
+            ws.onclose = () => {
+                updateConnectionStatus("Disconnected");
+                setTimeout(connect, 2000);
+            };
+        }
+
+        sendBtn.onclick = () => {
+            if (ws.readyState === WebSocket.OPEN) {
+                const msg = {
+                    room: 'default', // optional, for room-based routing on server
+                    username: userNameInput.value,          // optional, for routing on server
+                    content: msgInput.value,
+                    timestamp: Date.now(),
+                    // add any other fields you need
+                };
+                ws.send(JSON.stringify(msg));
+                ws.addEventListener("message", (event) => {
+                    console.log("Receivedd:", event.data);
+                });
+                msgInput.value = "";
+            }
+        };
+
+        msgInput.onkeydown = (e) => {
+            if (e.key === "Enter") sendBtn.onclick();
+        };
+
+        connect();
+    </script>
+
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const date_updated = document.getElementById("footer-year");
+            if (date_updated) { // Safety check to prevent errors if the ID is missing
+                const currentYear = new Date().getFullYear();
+                date_updated.textContent = `Chat-Pat Chat © ${currentYear}`;
+            }
+        });
+    </script>
+
+    <script>
+        function autoScrollMessages() {
+            const container = document.getElementById('chat');
+            if (!container) return;
+
+            requestAnimationFrame(() => {
+                container.scrollTop = container.scrollHeight;
+            });
+        }
+    </script>
+
+</body>
+
+</html>

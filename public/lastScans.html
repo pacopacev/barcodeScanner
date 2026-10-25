@@ -184,20 +184,21 @@
 
 <body>
 	<header>
-		<h1>Сканирания по партида</h1>
+		<h1>Сканирания по партида/работна поръчка</h1>
 		<a href="/">Към скенера</a>
 	</header>
 
 	<main>
 		<form id="search-form">
 			<label for="batch-ids">
-				ID на партида (може няколко, разделени със запетая или интервал)
-				<input id="batch-ids" name="batchIds" inputmode="numeric" placeholder="60, 61 Примерно!" required />
+				ID на партида (може няколко, разделени със запетая или интервал) или ном. на раб. поръчка
+				<input id="batch-ids" name="batchIds" inputmode="numeric" placeholder="60, 61 или 262846" required />
 			</label>
 			<button id="search-button" type="submit">Търси</button>
 		</form>
 
-		<div id="status" class="status" role="status" aria-live="polite">Въведете ID на партида, за да заредите сканиранията.</div>
+		<div id="status" class="status" role="status" aria-live="polite">Въведете ID на партида, за да заредите
+			сканиранията.</div>
 		<div class="table-wrap">
 			<table>
 				<thead>
@@ -222,18 +223,21 @@
 		const statusEl = document.getElementById('status');
 		const rowsEl = document.getElementById('scan-rows');
 		const stationNames = { 1: 'CUT', 2: 'CNC', 3: 'ASSEMBLY', 4: 'QC', 6: 'RELEASE' };
-		let currentBatchIds = [];
+		let currentSearch = { mode: 'batch', values: [] };
 
 		function setStatus(message, isError = false) {
 			statusEl.textContent = message;
 			statusEl.classList.toggle('error', isError);
 		}
 
-		function parseBatchIds(value) {
-			const tokens = value.trim().split(/[\s,;]+/).filter(Boolean);
+		function parseSearchTerms(value) {
+			const tokens = String(value ?? '').trim().split(/[\s,;]+/).filter(Boolean);
 			if (!tokens.length || tokens.some(token => !/^\d+$/.test(token))) return null;
-			const ids = [...new Set(tokens.map(Number))];
-			return ids.every(id => Number.isSafeInteger(id) && id > 0) ? ids : null;
+			const values = [...new Set(tokens.map(token => Number(token)))];
+			if (!values.length || values.some(id => !Number.isSafeInteger(id) || id <= 0)) return null;
+			if (values.every(id => String(id).length === 6)) return { mode: 'jon', values };
+			if (values.every(id => String(id).length <= 5)) return { mode: 'batch', values };
+			return null;
 		}
 
 		function makeCell(value, className = '') {
@@ -269,7 +273,7 @@
 		}
 
 		async function loadScans(batchIds) {
-			currentBatchIds = batchIds;
+			currentSearch = { mode: 'batch', values: batchIds };
 			searchButton.disabled = true;
 			setStatus('Зареждане...');
 			try {
@@ -287,14 +291,37 @@
 			}
 		}
 
+		async function loadScansByJon(jon) {
+			currentSearch = { mode: 'jon', values: [jon] };
+			searchButton.disabled = true;
+			setStatus('Зареждане...');
+			try {
+				const query = new URLSearchParams({ jon: String(jon) });
+				const response = await fetch(`/api/scans_by_jon?${query}`);
+				const data = await response.json();
+				if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+				renderScans(data.scans || []);
+				setStatus(`Намерени сканирания: ${(data.scans || []).length}`);
+			} catch (error) {
+				renderScans([]);
+				setStatus(`Грешка при зареждане: ${error.message}`, true);
+			} finally {
+				searchButton.disabled = false;
+			}
+		}
+
 		async function deleteScan(scan, button) {
-			if (!confirm(`Да изтрия ли сканирането на баркод ${scan.barcode}?`)) return;
+			if (!confirm(`Сигурни ли сте, че искате да изтриете ли сканирането на баркод ${scan.barcode}?`)) return;
 			button.disabled = true;
 			try {
 				const response = await fetch(`/api/scans/${encodeURIComponent(scan.scan_id)}`, { method: 'DELETE' });
 				const data = await response.json();
 				if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-				await loadScans(currentBatchIds);
+				if (currentSearch.mode === 'jon') {
+					await loadScansByJon(currentSearch.values[0]);
+				} else {
+					await loadScans(currentSearch.values);
+				}
 			} catch (error) {
 				button.disabled = false;
 				setStatus(`Грешка при изтриване: ${error.message}`, true);
@@ -303,12 +330,16 @@
 
 		form.addEventListener('submit', event => {
 			event.preventDefault();
-			const batchIds = parseBatchIds(batchInput.value);
-			if (!batchIds) {
-				setStatus('Въведете валидни положителни ID на партиди.', true);
+			const searchTerms = parseSearchTerms(batchInput.value);
+			if (!searchTerms) {
+				setStatus('Въведете валиден номер на партида или работна поръчка.', true);
 				return;
 			}
-			loadScans(batchIds);
+			if (searchTerms.mode === 'jon') {
+				loadScansByJon(searchTerms.values[0]);
+				return;
+			}
+			loadScans(searchTerms.values);
 		});
 	</script>
 </body>

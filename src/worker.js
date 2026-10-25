@@ -11,6 +11,28 @@ const STATION_IDS = {
 const STATION_SEQUENCE = ['release', 'cut', 'cnc', 'assembly', 'qc'];
 const SCAN_PATHS = new Set(['/scan', '/release', '/cut', '/cnc', '/assembly', '/qc']);
 
+export function parseSearchTerms(value) {
+  const tokens = String(value ?? '').trim().split(/[\s,;]+/).filter(Boolean);
+  if (!tokens.length || tokens.some(token => !/^\d+$/.test(token))) {
+    return null;
+  }
+
+  const values = [...new Set(tokens.map(token => Number(token)))];
+  if (!values.length || values.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+    return null;
+  }
+
+  if (values.length === 1 && String(values[0]).length === 6) {
+    return { mode: 'jon', values };
+  }
+
+  if (values.every(id => String(id).length <= 5)) {
+    return { mode: 'batch', values };
+  }
+
+  return null;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -21,6 +43,9 @@ export default {
 
     if (url.pathname === '/api/scans' && request.method === 'GET') {
       return handleBatchScans(request, env, ctx);
+    }
+    if (url.pathname === '/api/scans_by_jon' && request.method === 'GET') {
+      return handleBatchScansByJon(request, env, ctx);
     }
 
     const deleteScanMatch = url.pathname.match(/^\/api\/scans\/(\d+)$/);
@@ -119,14 +144,13 @@ async function handleScan(request, env, ctx) {
 
 async function handleBatchScans(request, env, ctx) {
   const rawBatchIds = new URL(request.url).searchParams.get('batchIds') || '';
-  const batchIds = rawBatchIds
-    .split(/[\s,;]+/)
-    .filter(Boolean)
-    .map(value => Number(value));
+  const parsed = parseSearchTerms(rawBatchIds);
 
-  if (batchIds.length === 0 || batchIds.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+  if (!parsed || parsed.mode !== 'batch') {
     return Response.json({ error: 'Enter one or more positive batch IDs' }, { status: 400 });
   }
+
+  const batchIds = parsed.values;
 
   const sql = postgres(env.HYPERDRIVE.connectionString, {
     max: 1,
@@ -160,6 +184,49 @@ async function handleBatchScans(request, env, ctx) {
     ctx.waitUntil(sql.end());
   }
 }
+
+async function handleBatchScansByJon(request, env, ctx) {
+  const rawJon = new URL(request.url).searchParams.get('jon') || '';
+  const parsed = parseSearchTerms(rawJon);
+
+  if (!parsed || parsed.mode !== 'jon' || parsed.values.length !== 1) {
+    return Response.json({ error: 'Enter exactly one valid job order number' }, { status: 400 });
+  }
+
+  const jon = parsed.values[0];
+  const sql = postgres(env.HYPERDRIVE.connectionString, {
+    max: 1,
+    idle_timeout: 5,
+    connect_timeout: 10,
+  });
+
+  try {
+    const scans = await sql`
+      SELECT
+        jbs.batch_id,
+        jbs.job_order_number,
+        bs.id::text AS scan_id,
+        bs.barcode,
+        bs.device_id,
+        u.first_name,
+        bs.production_station_id,
+        bs.scanned_at
+      FROM jo_barcode_status AS jbs
+      JOIN barcode_scans AS bs ON bs.barcode = jbs.job_order_number
+      LEFT JOIN users as u ON u.device_id = bs.device_id
+      WHERE jbs.job_order_number = ${jon}
+      ORDER BY bs.scanned_at DESC
+    `;
+
+    return Response.json({ scans });
+  } catch (err) {
+    console.error(err);
+    return Response.json({ error: 'Could not load scans' }, { status: 500 });
+  } finally {
+    ctx.waitUntil(sql.end());
+  }
+}
+
 
 async function handleDeleteScan(scanId, env, ctx) {
   const sql = postgres(env.HYPERDRIVE.connectionString, {
