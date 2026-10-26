@@ -175,6 +175,10 @@
             background: #7f1d1d;
         }
 
+        #log li.accepted {
+            background: #10b981;
+        }
+
         /* Small gray text (time, state) */
         .muted {
             color: #9ca3af;
@@ -376,6 +380,8 @@
             // if (!details) clearLogBtn.disabled = true; // if the row is gone, disable the clear button
             if (details) {
                 row.classList.toggle('rejected', state === 'Rejected');
+                row.classList.toggle('rejected', state === 'Already saved');
+                // row.classList.toggle('accepted', state === 'Saved');
                 details.textContent = `${scan.process ? scan.process.toUpperCase() : 'SCAN'} · ${new Date(scan.scannedAt).toLocaleTimeString()} · ${state}`;
             }
         }
@@ -414,6 +420,18 @@
                         });
                         const data = await res.json().catch(() => ({}));
 
+                        if (data.duplicate) {
+                            const index = pendingScans.findIndex(item => item.id === scan.id);
+                            if (index !== -1) pendingScans.splice(index, 1);
+                            persistPendingScans();
+                            updateLogState(scan, 'Already saved');
+                            beep(300, 200, 0.3);
+                            setStatus(`Already saved: ${scan.barcode} · ${(scan.process || '').toUpperCase() || 'SCAN'}`, 'warn');
+                            continue;
+                        }
+
+
+
                         if (res.status === 409) {
                             const index = pendingScans.findIndex(item => item.id === scan.id);
                             if (index !== -1) pendingScans.splice(index, 1);
@@ -444,6 +462,7 @@
                         if (!data.duplicate && navigator.vibrate) {
                             beep(880, 150, 0.3); // short beep on success
                             navigator.vibrate(50);
+                            // updateLogState(scan, 'Accepted');
                         }
                     } catch (err) {
                         // Network or server problem: keep the scan queued and stop for now

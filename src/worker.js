@@ -115,21 +115,32 @@ async function handleScan(request, env, ctx) {
       }
     }
 
-    const rows = await sql`
+//     const rows = await sql`
+//   INSERT INTO barcode_scans (barcode, device_id, production_station_id)
+//   SELECT ${barcode}::text, ${deviceId}::text, ${productionStationId}::int
+//   WHERE NOT EXISTS (
+//     SELECT 1
+//     FROM barcode_scans
+//     WHERE barcode = ${barcode}::text
+//       AND device_id = ${deviceId}::text
+//       AND production_station_id = ${productionStationId}::int
+//       AND scanned_at > NOW() - INTERVAL '5 seconds'
+//   )
+//   RETURNING id, barcode, device_id, production_station_id, scanned_at
+// `;
+
+
+const rows = await sql`
   INSERT INTO barcode_scans (barcode, device_id, production_station_id)
-  SELECT ${barcode}::text, ${deviceId}::text, ${productionStationId}::int
-  WHERE NOT EXISTS (
-    SELECT 1
-    FROM barcode_scans
-    WHERE barcode = ${barcode}::text
-      AND device_id = ${deviceId}::text
-      AND production_station_id = ${productionStationId}::int
-      AND scanned_at > NOW() - INTERVAL '5 seconds'
-  )
-  RETURNING id, barcode, device_id, production_station_id, scanned_at
+VALUES (${barcode}::text, ${deviceId}::text, ${productionStationId}::int)
+ON CONFLICT (barcode, production_station_id) DO NOTHING
+RETURNING id, barcode, device_id, production_station_id, scanned_at
 `;
 
+// console.log(rows.length);
+
     if (rows.length === 0) {
+      console.log(rows);
       return Response.json({ success: true, duplicate: true, barcode });
     }
 
