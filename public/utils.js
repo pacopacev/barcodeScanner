@@ -1,3 +1,3 @@
-const version = {ver: "V1.4.4"};
+const version = {ver: "V1.5.4"};
 
 export { version };

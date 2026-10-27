@@ -379,9 +379,8 @@
             const details = row?.lastElementChild;
             // if (!details) clearLogBtn.disabled = true; // if the row is gone, disable the clear button
             if (details) {
-                row.classList.toggle('rejected', state === 'Rejected');
-                row.classList.toggle('rejected', state === 'Already saved');
-                // row.classList.toggle('accepted', state === 'Saved');
+                row.classList.toggle('rejected', state === 'Sequence error');
+                row.classList.toggle('accepted', state === 'Saved');
                 details.textContent = `${scan.process ? scan.process.toUpperCase() : 'SCAN'} · ${new Date(scan.scannedAt).toLocaleTimeString()} · ${state}`;
             }
         }
@@ -436,9 +435,9 @@
                             const index = pendingScans.findIndex(item => item.id === scan.id);
                             if (index !== -1) pendingScans.splice(index, 1);
                             persistPendingScans();
-                            updateLogState(scan, 'Rejected');
+                            updateLogState(scan, 'Sequence error');
                             beep(300, 200, 0.3);
-                            setStatus(data.error || 'Scan rejected: process is out of order', 'warn');
+                            setStatus(`Sequence error: ${data.error || 'Scan stations in order.'}`, 'warn');
                             continue;
                         }
 
@@ -659,12 +658,13 @@
         });
         // QC button
         qcBtn.addEventListener('click', () => {
-            if (!alert('Не е позволено от мобилно устройство! Моля, използвайте десктоп станция.')) return;
+            
             btnState.qc = true;
             btnState.release = false;
             btnState.cut = false;
             btnState.cnc = false;
             btnState.assembly = false;
+            if (!alert('Не е позволено от мобилно устройство! Моля, използвайте десктоп станция.')) return;
             btnChangeState(releaseBtn, cutHBtn, cncBtn, assemblyBtn, qcBtn);
 
             startScanner('QC');

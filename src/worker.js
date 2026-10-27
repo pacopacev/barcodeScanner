@@ -95,6 +95,19 @@ async function handleScan(request, env, ctx) {
 
 
   try {
+    const [existingScan] = await sql`
+      SELECT EXISTS (
+        SELECT 1
+        FROM barcode_scans
+        WHERE barcode = ${barcode}::text
+          AND production_station_id = ${productionStationId}::int
+      ) AS scanned
+    `;
+
+    if (existingScan.scanned) {
+      return Response.json({ success: true, duplicate: true, barcode });
+    }
+
     const stationIndex = STATION_SEQUENCE.indexOf(processName);
     if (stationIndex > 0) {
       const previousStationId = STATION_IDS[STATION_SEQUENCE[stationIndex - 1]];

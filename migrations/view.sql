@@ -33,4 +33,14 @@
 
 --   SELECT * FROM job_station_status WHERE batch_id IN (35)
 
-  SELECT * FROM jo_barcode_status WHERE batch_id IN (60,61)
+--   SELECT * FROM jo_barcode_status WHERE batch_id IN (60,61)
+
+
+--   SELECT j.job_order_number, j.ma_number, j."name",
+--          j.type_id, j.batch_id, j.quantity, j."release",
+--          j.cut, j.cnc, j.assembly, s.qc AS qc_desktop
+--   FROM jo_barcode_status j
+--   LEFT JOIN job_station_status s ON s.job_order_id = j.job_order_id
+--   WHERE j.batch_id IN (60, 61)
+-- `;
+  
