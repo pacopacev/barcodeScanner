@@ -94,6 +94,11 @@
 
         /* red = error */
 
+        .status.duplicate {
+            background: #facc15;
+            color: #422006;
+        }
+
         /* ===== Buttons row ===== */
         .controls {
             display: flex;
@@ -176,7 +181,18 @@
         }
 
         #log li.accepted {
-            background: #10b981;
+            background: #065f46;
+        }
+
+        #log li.duplicate {
+            background: #facc15;
+            color: #422006;
+        }
+
+        #log li.accepted .muted,
+        #log li.rejected .muted,
+        #log li.duplicate .muted {
+            color: inherit;
         }
 
         /* Small gray text (time, state) */
@@ -381,6 +397,7 @@
             if (details) {
                 row.classList.toggle('rejected', state === 'Sequence error');
                 row.classList.toggle('accepted', state === 'Saved');
+                row.classList.toggle('duplicate', state === 'Already saved');
                 details.textContent = `${scan.process ? scan.process.toUpperCase() : 'SCAN'} · ${new Date(scan.scannedAt).toLocaleTimeString()} · ${state}`;
             }
         }
@@ -425,7 +442,7 @@
                             persistPendingScans();
                             updateLogState(scan, 'Already saved');
                             beep(300, 200, 0.3);
-                            setStatus(`Already saved: ${scan.barcode} · ${(scan.process || '').toUpperCase() || 'SCAN'}`, 'warn');
+                            setStatus(`Already saved: ${scan.barcode} · ${(scan.process || '').toUpperCase() || 'SCAN'}`, 'duplicate');
                             continue;
                         }
 
@@ -437,7 +454,7 @@
                             persistPendingScans();
                             updateLogState(scan, 'Sequence error');
                             beep(300, 200, 0.3);
-                            setStatus(`Sequence error: ${data.error || 'Scan stations in order.'}`, 'warn');
+                            setStatus(`Sequence error: ${data.error || 'Scan stations in order.'}`, 'error');
                             continue;
                         }
 
@@ -455,7 +472,7 @@
                         // Server says duplicate = same scan was saved within its 5-second window
                         const state = data.duplicate ? 'Already saved' : 'Saved';
                         updateLogState(scan, state);
-                        setStatus(`${state}: ${scan.barcode} · ${(scan.process || '').toUpperCase() || 'SCAN'}`, data.duplicate ? 'warn' : 'ok');
+                        setStatus(`${state}: ${scan.barcode} · ${(scan.process || '').toUpperCase() || 'SCAN'}`, data.duplicate ? 'duplicate' : 'ok');
 
                         // Short vibration on real saves (if the device supports it)
                         if (!data.duplicate && navigator.vibrate) {

@@ -86,6 +86,14 @@ async function handleScan(request, env, ctx) {
     return Response.json({ error: 'a valid production process is required' }, { status: 400 });
   }
 
+  console.log('scan-debug', JSON.stringify({
+    event: 'request',
+    path: new URL(request.url).pathname,
+    barcode,
+    process: processName,
+    stationId: productionStationId,
+  }));
+
   const sql = postgres(env.HYPERDRIVE.connectionString, {
     max: 1,
     idle_timeout: 5,
@@ -104,6 +112,14 @@ async function handleScan(request, env, ctx) {
       ) AS scanned
     `;
 
+    console.log('scan-debug', JSON.stringify({
+      event: 'duplicate-check',
+      barcode,
+      process: processName,
+      stationId: productionStationId,
+      found: existingScan.scanned,
+    }));
+
     if (existingScan.scanned) {
       return Response.json({ success: true, duplicate: true, barcode });
     }
@@ -117,10 +133,27 @@ async function handleScan(request, env, ctx) {
           FROM barcode_scans
           WHERE barcode = ${barcode}::text
             AND production_station_id = ${previousStationId}::int
+            AND scanned_at <= NOW()
         ) AS scanned
       `;
 
+      console.log('scan-debug', JSON.stringify({
+        event: 'sequence-check',
+        barcode,
+        process: processName,
+        expectedPreviousProcess: STATION_SEQUENCE[stationIndex - 1],
+        expectedPreviousStationId: previousStationId,
+        found: previousScan.scanned,
+      }));
+
       if (!previousScan.scanned) {
+        console.warn('scan-debug', JSON.stringify({
+          event: 'sequence-rejected',
+          barcode,
+          process: processName,
+          expectedPreviousProcess: STATION_SEQUENCE[stationIndex - 1],
+          expectedPreviousStationId: previousStationId,
+        }));
         return Response.json(
           { error: `Scan ${STATION_SEQUENCE[stationIndex - 1]} before ${processName}` },
           { status: 409 },
@@ -149,6 +182,14 @@ VALUES (${barcode}::text, ${deviceId}::text, ${productionStationId}::int)
 ON CONFLICT (barcode, production_station_id) DO NOTHING
 RETURNING id, barcode, device_id, production_station_id, scanned_at
 `;
+
+    console.log('scan-debug', JSON.stringify({
+      event: 'insert-result',
+      barcode,
+      process: processName,
+      stationId: productionStationId,
+      inserted: rows.length > 0,
+    }));
 
 // console.log(rows.length);
 
