@@ -1,5 +1,6 @@
 import postgres from 'postgres';
 
+// Keep these database station IDs aligned with the production workflow and scan-status views.
 const STATION_IDS = {
   release: 6,
   cut: 1,
@@ -11,6 +12,7 @@ const STATION_IDS = {
 const STATION_SEQUENCE = ['release', 'cut', 'cnc', 'assembly', 'qc'];
 const SCAN_PATHS = new Set(['/scan', '/release', '/cut', '/cnc', '/assembly', '/qc']);
 
+// Batch IDs and job order numbers share one input; their lengths determine the search mode.
 export function parseSearchTerms(value) {
   const tokens = String(value ?? '').trim().split(/[\s,;]+/).filter(Boolean);
   if (!tokens.length || tokens.some(token => !/^\d+$/.test(token))) {
@@ -37,6 +39,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // Keep barcode writes, scan searches, deletion, and static assets on one Worker entry point.
     if (request.method === 'POST' && SCAN_PATHS.has(url.pathname)) {
       return handleScan(request, env, ctx);
     }
@@ -61,6 +64,7 @@ export default {
   },
 };
 
+// Validate a scan, enforce its preceding station, then insert it idempotently.
 async function handleScan(request, env, ctx) {
   let body;
   try {
@@ -127,6 +131,7 @@ async function handleScan(request, env, ctx) {
     const stationIndex = STATION_SEQUENCE.indexOf(processName);
     if (stationIndex > 0) {
       const previousStationId = STATION_IDS[STATION_SEQUENCE[stationIndex - 1]];
+      // NOW() prevents Hyperdrive from caching this read, which must see the latest prior scan.
       const [previousScan] = await sql`
         SELECT EXISTS (
           SELECT 1
@@ -207,6 +212,7 @@ RETURNING id, barcode, device_id, production_station_id, scanned_at
   }
 }
 
+// Return every matching scan with operator and station details for batch searches.
 async function handleBatchScans(request, env, ctx) {
   const rawBatchIds = new URL(request.url).searchParams.get('batchIds') || '';
   const parsed = parseSearchTerms(rawBatchIds);
@@ -250,6 +256,7 @@ async function handleBatchScans(request, env, ctx) {
   }
 }
 
+// Search by a single six-digit job order number rather than one or more batch IDs.
 async function handleBatchScansByJon(request, env, ctx) {
   const rawJon = new URL(request.url).searchParams.get('jon') || '';
   const parsed = parseSearchTerms(rawJon);
@@ -293,6 +300,7 @@ async function handleBatchScansByJon(request, env, ctx) {
 }
 
 
+// Delete one scan record by its database ID; the client refreshes its current search afterward.
 async function handleDeleteScan(scanId, env, ctx) {
   const sql = postgres(env.HYPERDRIVE.connectionString, {
     max: 1,

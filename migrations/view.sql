@@ -1,3 +1,4 @@
+-- Scratch queries for inspecting production and station status views; kept commented for manual use.
 -- SELECT jo.id AS job_order_id,
 --     jo.job_order_number,
 --     p.ma_number,

@@ -1,6 +1,8 @@
+# PowerShell local-development example; use the local database connection string for your environment.
 $env:CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE = "postgres://user:password@host:5432/dbname"
 npx wrangler dev --ip 127.0.0.1 --port 8787
 
 
+# Bash-compatible local-development example; this is an alternative to the PowerShell commands above.
 export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE="postgres://user:password@host:5432/dbname"
 npx wrangler dev --ip 127.0.0.1 --port 8787

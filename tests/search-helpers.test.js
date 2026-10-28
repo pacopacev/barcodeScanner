@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { parseSearchTerms } from '../src/worker.js';
 
+// Lock down input classification and reject malformed or ambiguous searches.
 test('parses batch ids', () => {
   assert.deepEqual(parseSearchTerms('60, 61 62'), {
     mode: 'batch',

@@ -266,7 +266,9 @@
 
 
         let wakeLock = null;
+        // Track how long the app stays in the background so brief interruptions do not reload it.
         let hiddenAt = null;
+        // Prevent pageshow and visibilitychange from triggering duplicate reloads.
         let refreshingOnResume = false;
 
         function refreshAfterResume() {
@@ -275,6 +277,7 @@
             window.location.reload();
         }
 
+        // A back-forward cache restore can revive stale camera and JavaScript state.
         window.addEventListener('pageshow', event => {
             if (event.persisted) refreshAfterResume();
         });
@@ -285,6 +288,7 @@
 
         window.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
+                // Mobile browsers may suspend the camera while the app is backgrounded.
                 const wasAwayLongEnough = hiddenAt !== null && Date.now() - hiddenAt >= 30000;
                 hiddenAt = null;
                 if (wasAwayLongEnough) {

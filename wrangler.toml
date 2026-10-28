@@ -1,12 +1,15 @@
+# Worker entry point and runtime support for the postgres client.
 name = "barcode-scanner"
 main = "src/worker.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
+# Static frontend files are served through this binding.
 [assets]
 directory = "./public"
 binding = "ASSETS"
 
+# Reuse the configured database connection pool for Worker SQL requests.
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "7aad2543fff5439f8164abee856ac53a"

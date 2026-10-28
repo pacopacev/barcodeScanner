@@ -217,6 +217,7 @@
 	</main>
 
 	<script>
+		// This page uses the same batch/job-order input rules as the Worker search endpoint.
 		const form = document.getElementById('search-form');
 		const batchInput = document.getElementById('batch-ids');
 		const searchButton = document.getElementById('search-button');
@@ -248,6 +249,7 @@
 		}
 
 		function renderScans(scans) {
+			// Build cells with textContent so database values are displayed as text, not markup.
 			rowsEl.replaceChildren();
 			for (const scan of scans) {
 				const row = document.createElement('tr');
@@ -311,6 +313,7 @@
 		}
 
 		async function deleteScan(scan, button) {
+			// Confirm before the destructive request, then reload whichever search is currently active.
 			if (!confirm(`Сигурни ли сте, че искате да изтриете ли сканирането на баркод ${scan.barcode}?`)) return;
 			button.disabled = true;
 			try {
