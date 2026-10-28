@@ -266,6 +266,18 @@
 
 
         let wakeLock = null;
+        let hiddenAt = null;
+        let refreshingOnResume = false;
+
+        function refreshAfterResume() {
+            if (refreshingOnResume) return;
+            refreshingOnResume = true;
+            window.location.reload();
+        }
+
+        window.addEventListener('pageshow', event => {
+            if (event.persisted) refreshAfterResume();
+        });
 
         // window.addEventListener('beforeunload', () => {
         //     allowSleep();
@@ -273,8 +285,15 @@
 
         window.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
+                const wasAwayLongEnough = hiddenAt !== null && Date.now() - hiddenAt >= 30000;
+                hiddenAt = null;
+                if (wasAwayLongEnough) {
+                    refreshAfterResume();
+                    return;
+                }
                 keepAwake();
             } else {
+                hiddenAt = Date.now();
                 allowSleep();
             }
         });
