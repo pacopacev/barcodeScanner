@@ -29,3 +29,29 @@ test('rejects mixed batch and jon values in one search', () => {
 test('rejects invalid values', () => {
   assert.equal(parseSearchTerms('abc'), null);
 });
+
+test('GET /api/report rejects invalid batch IDs before accessing the database', async () => {
+  const worker = (await import('../src/worker.js')).default;
+  const response = await worker.fetch(
+    new Request('http://example.com/api/report?batch_id=not-a-number'),
+    { ASSETS: { fetch: async () => new Response('not used') } },
+    { waitUntil: () => {} },
+  );
+
+  assert.equal(response.status, 400);
+  const payload = await response.json();
+  assert.equal(payload.error, 'Enter one or more valid batch IDs');
+});
+
+test('GET /api/report accepts multiple batch IDs', async () => {
+  const worker = (await import('../src/worker.js')).default;
+  const response = await worker.fetch(
+    new Request('http://example.com/api/report?batch_id=60%2C61'),
+    { ASSETS: { fetch: async () => new Response('not used') } },
+    { waitUntil: () => {} },
+  );
+
+  assert.equal(response.status, 503);
+  const payload = await response.json();
+  assert.equal(payload.error, 'Report database is not configured');
+});

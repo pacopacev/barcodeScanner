@@ -51,6 +51,10 @@ export default {
       return handleBatchScansByJon(request, env, ctx);
     }
 
+    if (url.pathname === '/api/report' && request.method === 'GET') {
+      return getReport(request, env, ctx);
+    }
+
     const deleteScanMatch = url.pathname.match(/^\/api\/scans\/(\d+)$/);
     if (deleteScanMatch && request.method === 'DELETE') {
       return handleDeleteScan(deleteScanMatch[1], env, ctx);
@@ -63,6 +67,130 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
+
+async function getReport(request, env, ctx) {
+  const url = new URL(request.url);
+  const rawBatchId = url.searchParams.get('batch_id');
+  let batchIds = null;
+
+  if (rawBatchId !== null) {
+    const parsedBatch = parseSearchTerms(rawBatchId);
+    if (!parsedBatch || parsedBatch.mode !== 'batch') {
+      return Response.json({ error: 'Enter one or more valid batch IDs' }, { status: 400 });
+    }
+    batchIds = parsedBatch.values;
+  }
+
+  if (!env.HYPERDRIVE?.connectionString) {
+    return Response.json({ error: 'Report database is not configured' }, { status: 503 });
+  }
+
+  const sql = postgres(env.HYPERDRIVE.connectionString, {
+    max: 1,
+    idle_timeout: 5,
+    connect_timeout: 10,
+  });
+
+  try {
+    const rows = await sql`
+      WITH job_status AS (
+        SELECT
+          jbs.job_order_id,
+          BOOL_OR(jbs."release" = 'passed') AS release_passed,
+          BOOL_OR(jbs.cut = 'passed') AS cut_passed,
+          BOOL_OR(jbs.cnc = 'passed') AS cnc_passed,
+          BOOL_OR(jbs.assembly = 'passed') AS assembly_passed,
+          BOOL_OR(jss.qc = 'passed') AS qc_passed
+        FROM jo_barcode_status AS jbs
+        LEFT JOIN job_station_status AS jss
+          ON jss.job_order_id = jbs.job_order_id
+        WHERE ${batchIds}::int[] IS NULL OR jbs.batch_id = ANY(${batchIds}::int[])
+        GROUP BY jbs.job_order_id
+      )
+      SELECT 6 AS production_station_id,
+        COUNT(*) FILTER (WHERE release_passed)::int AS total
+      FROM job_status
+      UNION ALL
+      SELECT 1, COUNT(*) FILTER (WHERE cut_passed)::int FROM job_status
+      UNION ALL
+      SELECT 2, COUNT(*) FILTER (WHERE cnc_passed)::int FROM job_status
+      UNION ALL
+      SELECT 3, COUNT(*) FILTER (WHERE assembly_passed)::int FROM job_status
+      UNION ALL
+      SELECT 4, COUNT(*) FILTER (WHERE qc_passed)::int FROM job_status
+    `;
+
+    const [{ total_quantity: totalQuantity }] = await sql`
+      SELECT COALESCE(SUM(quantity), 0)::numeric AS total_quantity
+      FROM (
+        SELECT job_order_id, MAX(quantity) AS quantity
+        FROM jo_barcode_status
+        WHERE ${batchIds}::int[] IS NULL OR batch_id = ANY(${batchIds}::int[])
+        GROUP BY job_order_id
+      ) AS batch_job_orders
+    `;
+
+    const [{ total_count: totalCount }] = await sql`
+      SELECT COALESCE(COUNT(quantity), 0)::numeric AS total_count
+      FROM (
+        SELECT job_order_id, MAX(quantity) AS quantity
+        FROM jo_barcode_status
+        WHERE ${batchIds}::int[] IS NULL OR batch_id = ANY(${batchIds}::int[])
+        GROUP BY job_order_id
+      ) AS batch_job_orders
+    `;
+
+    console.log(totalQuantity);
+    console.log(totalCount);
+
+    const stations = STATION_SEQUENCE.map((name) => [name, STATION_IDS[name]]);
+    const countsByStation = new Map(
+      rows.map((row) => [Number(row.production_station_id), Number(row.total) || 0]),
+    );
+    const labels = stations.map(([name]) => name.toUpperCase());
+    const values = stations.map(([, stationId]) => countsByStation.get(stationId) ?? 0);
+
+    const plotlyData = {
+      totalQuantity: Number(totalQuantity) || 0,
+      totalCount: Number(totalCount) || 0,
+      data: [{
+        x: labels,
+        y: values,
+        text: values.map(String),
+        textposition: 'outside',
+        textfont: { color: '#f9fafb', size: 13 },
+        cliponaxis: false,
+        type: 'bar',
+        marker: { color: '#22c55e' },
+        name: 'Passed job orders',
+      }],
+      layout: {
+        title: batchIds === null
+          ? 'Работни поръчки по производствени етапи'
+          : `Работни поръчки по производствени етапи за ${batchIds.length === 1 ? 'партида' : 'партиди'} ${batchIds.join(', ')}`,
+        paper_bgcolor: '#111827',
+        plot_bgcolor: '#111827',
+        font: { color: '#f9fafb' },
+        xaxis: { title: 'Процес', gridcolor: '#374151' },
+        yaxis: { title: 'Работни поръчки', gridcolor: '#374151' },
+        margin: { l: 48, r: 16, t: 48, b: 80 },
+      },
+    };
+
+    return new Response(JSON.stringify(plotlyData), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('report-error', error);
+    return Response.json({ error: 'Could not load report data' }, { status: 500 });
+  } finally {
+    try {
+      await sql.end();
+    } catch {
+      // Connection cleanup is best-effort for this lightweight report route.
+    }
+  }
+}
 
 // Validate a scan, enforce its preceding station, then insert it idempotently.
 async function handleScan(request, env, ctx) {
