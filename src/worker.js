@@ -96,6 +96,7 @@ async function getReport(request, env, ctx) {
       WITH job_status AS (
         SELECT
           jbs.job_order_id,
+          MAX(jbs.quantity) AS quantity,
           BOOL_OR(jbs."release" = 'passed') AS release_passed,
           BOOL_OR(jbs.cut = 'passed') AS cut_passed,
           BOOL_OR(jbs.cnc = 'passed') AS cnc_passed,
@@ -108,16 +109,21 @@ async function getReport(request, env, ctx) {
         GROUP BY jbs.job_order_id
       )
       SELECT 6 AS production_station_id,
-        COUNT(*) FILTER (WHERE release_passed)::int AS total
+        COUNT(*) FILTER (WHERE release_passed)::int AS total,
+        COALESCE(SUM(quantity) FILTER (WHERE release_passed), 0)::numeric AS process_quantity
       FROM job_status
       UNION ALL
-      SELECT 1, COUNT(*) FILTER (WHERE cut_passed)::int FROM job_status
+      SELECT 1, COUNT(*) FILTER (WHERE cut_passed)::int,
+        COALESCE(SUM(quantity) FILTER (WHERE cut_passed), 0)::numeric FROM job_status
       UNION ALL
-      SELECT 2, COUNT(*) FILTER (WHERE cnc_passed)::int FROM job_status
+      SELECT 2, COUNT(*) FILTER (WHERE cnc_passed)::int,
+        COALESCE(SUM(quantity) FILTER (WHERE cnc_passed), 0)::numeric FROM job_status
       UNION ALL
-      SELECT 3, COUNT(*) FILTER (WHERE assembly_passed)::int FROM job_status
+      SELECT 3, COUNT(*) FILTER (WHERE assembly_passed)::int,
+        COALESCE(SUM(quantity) FILTER (WHERE assembly_passed), 0)::numeric FROM job_status
       UNION ALL
-      SELECT 4, COUNT(*) FILTER (WHERE qc_passed)::int FROM job_status
+      SELECT 4, COUNT(*) FILTER (WHERE qc_passed)::int,
+        COALESCE(SUM(quantity) FILTER (WHERE qc_passed), 0)::numeric FROM job_status
     `;
 
     const [{ total_quantity: totalQuantity }] = await sql`
@@ -144,11 +150,20 @@ async function getReport(request, env, ctx) {
     console.log(totalCount);
 
     const stations = STATION_SEQUENCE.map((name) => [name, STATION_IDS[name]]);
-    const countsByStation = new Map(
-      rows.map((row) => [Number(row.production_station_id), Number(row.total) || 0]),
-    );
+    console.log("stations",stations);
+    const processTotals = new Map(rows.map((row) => [
+      Number(row.production_station_id),
+      {
+        jobOrders: Number(row.total) || 0,
+        quantity: Number(row.process_quantity) || 0,
+      },
+    ]));
+
+    console.log("processTotals",processTotals);
     const labels = stations.map(([name]) => name.toUpperCase());
-    const values = stations.map(([, stationId]) => countsByStation.get(stationId) ?? 0);
+    const values = stations.map(([, stationId]) => processTotals.get(stationId)?.quantity ?? 0);
+    const jobOrderCounts = stations.map(([, stationId]) => processTotals.get(stationId)?.jobOrders ?? 0);
+    console.log('report-debug', { labels, values, jobOrderCounts, totalQuantity, totalCount });
 
     const plotlyData = {
       totalQuantity: Number(totalQuantity) || 0,
@@ -157,22 +172,24 @@ async function getReport(request, env, ctx) {
         x: labels,
         y: values,
         text: values.map(String),
+        customdata: jobOrderCounts,
         textposition: 'outside',
         textfont: { color: '#f9fafb', size: 13 },
         cliponaxis: false,
+        hovertemplate: 'Количество: %{y}<br>Работни поръчки: %{customdata}<extra>%{x}</extra>',
         type: 'bar',
         marker: { color: '#22c55e' },
-        name: 'Passed job orders',
+        name: 'Passed quantity',
       }],
       layout: {
         title: batchIds === null
-          ? 'Работни поръчки по производствени етапи'
-          : `Работни поръчки по производствени етапи за ${batchIds.length === 1 ? 'партида' : 'партиди'} ${batchIds.join(', ')}`,
+          ? 'Количество по производствени етапи'
+          : `Количество по производствени етапи за <br>${batchIds.length === 1 ? 'партида' : 'партиди'} ${batchIds.join(', ')}`,
         paper_bgcolor: '#111827',
         plot_bgcolor: '#111827',
         font: { color: '#f9fafb' },
         xaxis: { title: 'Процес', gridcolor: '#374151' },
-        yaxis: { title: 'Работни поръчки', gridcolor: '#374151' },
+        yaxis: { title: 'Количество', gridcolor: '#374151' },
         margin: { l: 48, r: 16, t: 48, b: 80 },
       },
     };
